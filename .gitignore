@@ -1,0 +1,25 @@
+# Node dependencies & builds
+node_modules/
+dist/
+dist-ssr/
+*.local
+
+# Tauri & Rust builds
+src-tauri/target/
+
+# Local databases & logs
+*.db
+*.sqlite
+*.log
+.system_generated/
+
+# Environment & API keys
+.env
+.env.*
+!.env.example
+
+# IDE & OS files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
