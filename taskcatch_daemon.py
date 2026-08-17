@@ -619,9 +619,11 @@ def handle_hotkey_trigger(trigger_name="HOTKEY"):
         task_id = "task_" + os.urandom(4).hex()
         created_at = datetime.now(timezone.utc).isoformat()
 
+        extracted_title = extracted.get("task_title") or extracted.get("title") or (text.strip().split('\n')[0][:80] if text else "Action Item")
+
         new_task = {
             "id": task_id,
-            "title": extracted["task_title"],
+            "title": extracted_title,
             "raw_source_text": text,
             "source_app": win_info.get("source_app", "Desktop"),
             "source_window_title": win_info.get("source_window_title", ""),

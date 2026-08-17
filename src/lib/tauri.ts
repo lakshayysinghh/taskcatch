@@ -120,6 +120,16 @@ async function handleMockCommand<T>(cmd: string, args?: Record<string, unknown>)
 
   switch (cmd) {
     case 'get_tasks': {
+      try {
+        const resp = await fetch('http://127.0.0.1:5174/api/tasks', { method: 'GET' });
+        if (resp.ok) {
+          const liveTasks = await resp.json();
+          if (Array.isArray(liveTasks) && liveTasks.length > 0) {
+            saveMockTasks(liveTasks);
+            return liveTasks as unknown as T;
+          }
+        }
+      } catch {}
       return getMockTasks() as unknown as T;
     }
 

@@ -119,10 +119,10 @@ export function App() {
       });
     }
 
-    // Connect to embedded SSE Stream (/api/events)
+    // Connect to daemon SSE Stream (http://127.0.0.1:5174/events)
     let sse: EventSource | null = null;
     try {
-      sse = new EventSource('/api/events');
+      sse = new EventSource('http://127.0.0.1:5174/events');
       sse.addEventListener('task-created', (e) => {
         try {
           const newTask: Task = JSON.parse(e.data);
@@ -147,6 +147,11 @@ export function App() {
       // SSE not active
     }
 
+    // Auto-sync polling every 2 seconds with local daemon SQLite
+    const syncInterval = setInterval(() => {
+      refreshTasks();
+    }, 2000);
+
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
         e.preventDefault();
@@ -163,6 +168,7 @@ export function App() {
     window.addEventListener('keydown', handleKeyDown);
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
+      clearInterval(syncInterval);
       if (sse) sse.close();
     };
   }, [refreshTasks, refreshSettings, hudTask, settings.sound_feedback_enabled]);
