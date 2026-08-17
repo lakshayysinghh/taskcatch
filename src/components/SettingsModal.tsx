@@ -201,11 +201,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   onChange={(e) => setFormData({ ...formData, groq_model: e.target.value })}
                   className="bg-[#0a0b08] border border-[rgba(168,173,122,0.2)] text-xs text-[#d5d6cd] px-3 py-2 rounded-[8px] focus:outline-none focus:border-[#a8ad7a]"
                 >
-                  <option value="llama-3.1-8b-instant">llama-3.1-8b-instant (Fastest & Free for all accounts)</option>
-                  <option value="llama-3.3-70b-versatile">llama-3.3-70b-versatile (Higher accuracy)</option>
-                  <option value="llama3-70b-8192">llama3-70b-8192</option>
-                  <option value="mixtral-8x7b-32768">mixtral-8x7b-32768</option>
-                  <option value="grok-2-latest">grok-2-latest (xAI Grok)</option>
+                  <option value="llama-3.1-8b-instant">llama-3.1-8b-instant (Fastest & Free)</option>
+                  <option value="llama-3.3-70b-versatile">llama-3.3-70b-versatile (High Accuracy)</option>
+                  <option value="gemma2-9b-it">gemma2-9b-it (Google Gemma 2 on Groq)</option>
+                  <option value="grok-beta">grok-beta (xAI Grok)</option>
                 </select>
 
                 <button

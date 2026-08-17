@@ -225,42 +225,75 @@ async function handleMockCommand<T>(cmd: string, args?: Record<string, unknown>)
         throw new Error('API Key cannot be empty');
       }
 
-      // 1. If key is obviously xAI (xai-...) or user chose grok model
-      if (key.startsWith('xai-') || requestedModel.includes('grok')) {
+      // Step 1: Detect Provider URL by key prefix or test endpoints
+      const isXai = key.startsWith('xai-');
+
+      // 1. If xAI key
+      if (isXai) {
+        // Try getting model list from xAI
         try {
-          const resp = await fetch('https://api.x.ai/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              Authorization: `Bearer ${key}`,
-            },
-            body: JSON.stringify({
-              model: 'grok-2-latest',
-              messages: [{ role: 'user', content: 'Say "OK"' }],
-              max_tokens: 5,
-            }),
+          const listResp = await fetch('https://api.x.ai/v1/models', {
+            method: 'GET',
+            headers: { Authorization: `Bearer ${key}` },
           });
-          if (resp.ok) {
-            return 'Connection successful! xAI Grok (grok-2-latest) verified.' as unknown as T;
+          if (listResp.ok) {
+            const listData = await listResp.json();
+            const models = (listData.data || []).map((m: any) => m.id);
+            const chosen = models[0] || 'grok-beta';
+            return `Connection successful! xAI Grok verified (Active model: ${chosen}).` as unknown as T;
           }
-          const err = await resp.json().catch(() => null);
-          throw new Error(err?.error?.message || `xAI returned status ${resp.status}`);
-        } catch (e: any) {
-          throw new Error(`xAI Grok connection failed: ${e.message}`);
+        } catch {}
+
+        // Direct test with grok-beta or grok-2
+        for (const m of ['grok-beta', 'grok-2', 'grok-vision-beta']) {
+          try {
+            const resp = await fetch('https://api.x.ai/v1/chat/completions', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${key}`,
+              },
+              body: JSON.stringify({
+                model: m,
+                messages: [{ role: 'user', content: 'Say "OK"' }],
+                max_tokens: 5,
+              }),
+            });
+            if (resp.ok) {
+              return `Connection successful! xAI Grok (${m}) verified.` as unknown as T;
+            }
+          } catch {}
         }
+        throw new Error('xAI Grok verification failed. Please check your xAI API key.');
       }
 
-      // 2. Test Groq Cloud across supported free models
-      const groqModels = [
-        requestedModel || 'llama-3.1-8b-instant',
-        'llama-3.1-8b-instant',
-        'llama-3.3-70b-versatile',
-        'llama-3.2-3b-preview',
-        'mixtral-8x7b-32768',
-      ];
+      // 2. If GroqCloud key (or default)
+      // First try fetching live active models directly from Groq to eliminate decommissioned models
+      try {
+        const listResp = await fetch('https://api.groq.com/openai/v1/models', {
+          method: 'GET',
+          headers: { Authorization: `Bearer ${key}` },
+        });
+        if (listResp.ok) {
+          const listData = await listResp.json();
+          const activeModels = (listData.data || []).map((m: any) => m.id);
+          const preferred = activeModels.find((id: string) => id.includes('llama-3.3-70b')) ||
+                            activeModels.find((id: string) => id.includes('llama-3.1-8b')) ||
+                            activeModels[0] || 'llama-3.1-8b-instant';
+          return `Connection successful! Groq API verified with ${preferred}.` as unknown as T;
+        }
+      } catch {}
 
-      let lastGroqError = '';
-      for (const m of Array.from(new Set(groqModels))) {
+      // Test active modern Groq models (zero decommissioned models)
+      const modernGroqModels = [
+        requestedModel,
+        'llama-3.3-70b-versatile',
+        'llama-3.1-8b-instant',
+        'gemma2-9b-it',
+      ].filter(Boolean);
+
+      let lastError = '';
+      for (const m of modernGroqModels) {
         try {
           const resp = await fetch('https://api.groq.com/openai/v1/chat/completions', {
             method: 'POST',
@@ -279,35 +312,30 @@ async function handleMockCommand<T>(cmd: string, args?: Record<string, unknown>)
             return `Connection successful! Groq API verified with ${m}.` as unknown as T;
           }
           const errData = await resp.json().catch(() => null);
-          lastGroqError = errData?.error?.message || `Status ${resp.status}`;
+          lastError = errData?.error?.message || `Status ${resp.status}`;
         } catch (e: any) {
           if (e.message && (e.message.includes('Failed to fetch') || e.message.includes('NetworkError'))) {
             return 'API Key format accepted (Browser network restriction bypassed). Ready to use!' as unknown as T;
           }
-          lastGroqError = e.message;
+          lastError = e.message;
         }
       }
 
-      // 3. Fallback: Check if it's an xAI or OpenAI key
-      try {
-        const xaiResp = await fetch('https://api.x.ai/v1/chat/completions', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${key}`,
-          },
-          body: JSON.stringify({
-            model: 'grok-2-latest',
-            messages: [{ role: 'user', content: 'Say "OK"' }],
-            max_tokens: 5,
-          }),
-        });
-        if (xaiResp.ok) {
-          return 'Connection successful! xAI Grok verified.' as unknown as T;
-        }
-      } catch {}
+      // Check if it's an xAI or OpenAI key pasted in Groq field
+      if (!isXai) {
+        try {
+          const xaiTest = await fetch('https://api.x.ai/v1/chat/completions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
+            body: JSON.stringify({ model: 'grok-beta', messages: [{ role: 'user', content: 'Say "OK"' }], max_tokens: 5 }),
+          });
+          if (xaiTest.ok) {
+            return 'Connection successful! Key recognized as xAI Grok (grok-beta).' as unknown as T;
+          }
+        } catch {}
+      }
 
-      throw new Error(`Connection test failed: ${lastGroqError || 'Please check your API key or model.'}`);
+      throw new Error(`Connection test failed: ${lastError || 'Invalid API key or unauthorized access.'}`);
     }
 
     case 'test_todoist_connection': {
