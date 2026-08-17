@@ -29,7 +29,6 @@ interface TaskItemProps {
   onToggle: (id: string) => void;
   onDelete: (id: string) => void;
   onEdit: (task: Task) => void;
-  onSyncTodoist?: (id: string) => void;
 }
 
 export const TaskItem: React.FC<TaskItemProps> = ({

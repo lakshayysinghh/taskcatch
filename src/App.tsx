@@ -119,10 +119,10 @@ export function App() {
       });
     }
 
-    // Connect to daemon SSE Stream (http://127.0.0.1:5174/events)
+    // Connect to embedded SSE Stream (/api/events)
     let sse: EventSource | null = null;
     try {
-      sse = new EventSource('http://127.0.0.1:5174/events');
+      sse = new EventSource('/api/events');
       sse.addEventListener('task-created', (e) => {
         try {
           const newTask: Task = JSON.parse(e.data);
@@ -147,11 +147,6 @@ export function App() {
       // SSE not active
     }
 
-    // Auto-sync polling every 2 seconds with local daemon SQLite
-    const syncInterval = setInterval(() => {
-      refreshTasks();
-    }, 2000);
-
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
         e.preventDefault();
@@ -168,17 +163,31 @@ export function App() {
     window.addEventListener('keydown', handleKeyDown);
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
-      clearInterval(syncInterval);
       if (sse) sse.close();
     };
   }, [refreshTasks, refreshSettings, hudTask, settings.sound_feedback_enabled]);
 
   const handleToggleTask = async (id: string) => {
+    // Optimistic update first — ensures UI never flickers or vanishes
+    setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, is_completed: !t.is_completed } : t)));
     try {
       const updated = await api.toggleTask(id);
+      // Reconcile with the authoritative value from storage
       setTasks((prev) => prev.map((t) => (t.id === id ? updated : t)));
     } catch (err: any) {
-      showToast('Error', err.message || 'Failed to toggle task', 'error');
+      // If storage lookup failed, the optimistic update is still correct — just sync localStorage
+      try {
+        const currentTasks = JSON.parse(localStorage.getItem('taskcatch_mock_tasks') || '[]') as Task[];
+        const idx = currentTasks.findIndex((t: Task) => t.id === id);
+        if (idx === -1) {
+          // New in-memory task not yet in localStorage — add it from current React state
+          setTasks((prev) => {
+            const synced = [...prev];
+            try { localStorage.setItem('taskcatch_mock_tasks', JSON.stringify(synced)); } catch {}
+            return synced;
+          });
+        }
+      } catch { /* ignore */ }
     }
   };
 
@@ -300,7 +309,7 @@ export function App() {
   };
 
   return (
-    <div className="relative min-h-screen bg-[#0a0b08] text-[#e4e4de] font-sans antialiased selection:bg-[#33361f] selection:text-[#d9dcc4] overflow-x-hidden">
+    <div className="relative min-h-screen bg-[#0a0b08] text-[#e4e4de] font-sans antialiased selection:bg-[#33361f] selection:text-[#d9dcc4]">
       {/* Floating Transient Action HUD / Mini-Pill */}
       <FloatingHUD
         task={hudTask}

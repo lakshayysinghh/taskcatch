@@ -40,6 +40,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [showTodoistKey, setShowTodoistKey] = useState(false);
   const [isTestingGroq, setIsTestingGroq] = useState(false);
   const [isTestingTodoist, setIsTestingTodoist] = useState(false);
+  const [groqStatus, setGroqStatus] = useState<'idle' | 'connected' | 'error'>('idle');
+  const [groqStatusMsg, setGroqStatusMsg] = useState('');
+  const [todoistStatus, setTodoistStatus] = useState<'idle' | 'connected' | 'error'>('idle');
   const [activeTab, setActiveTab] = useState<'llm' | 'integrations' | 'system'>('llm');
 
   useEffect(() => {
@@ -58,12 +61,45 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       onShowToast('Missing Key', 'Enter your Groq API key first', 'warning');
       return;
     }
+    if (!key.startsWith('gsk_')) {
+      onShowToast('Invalid Key Format', 'Groq API keys must start with gsk_. Get a free key at console.groq.com/keys', 'error');
+      setGroqStatus('error');
+      setGroqStatusMsg('Invalid key format — must start with gsk_');
+      return;
+    }
     setIsTestingGroq(true);
+    setGroqStatus('idle');
     try {
       const res = await api.testLlmConnection('groq', key, formData.groq_model || 'llama-3.3-70b-versatile');
-      onShowToast('Connected', res || 'Groq API verified successfully', 'success');
+      const isSuccess = String(res).includes('✓') || String(res).includes('successful') || String(res).includes('verified') || String(res).includes('accepted');
+      if (isSuccess) {
+        setGroqStatus('connected');
+        // Extract a short human-readable label for the inline badge
+        const activeModel = formData.groq_model || 'llama-3.3-70b-versatile';
+        const shortModel = activeModel.split('-').slice(0, 4).join('-');
+        setGroqStatusMsg(`Connected · ${shortModel}`);
+      } else {
+        setGroqStatus('error');
+        setGroqStatusMsg(String(res).substring(0, 80));
+      }
+      onShowToast(
+        isSuccess ? '✅ API Key Verified' : 'Connection Result',
+        String(res),
+        isSuccess ? 'success' : 'info'
+      );
     } catch (err: any) {
-      onShowToast('Connection Failed', err.message || 'Connection test failed', 'error');
+      const msg = String(err.message || 'Connection test failed');
+      setGroqStatus('error');
+      setGroqStatusMsg(msg.substring(0, 80));
+      if (msg.includes('authentication') || msg.includes('Invalid API key') || msg.includes('Unauthorized')) {
+        onShowToast('Invalid API Key', 'This key was rejected by Groq. Get a valid key at console.groq.com/keys', 'error');
+      } else if (msg.includes('does not exist') || msg.includes('not have access')) {
+        onShowToast('Model Not Available', `Switch to a different model in the dropdown. Your key is likely valid. Try "llama3-70b-8192".`, 'warning');
+      } else if (msg.includes('Rate limit') || msg.includes('429')) {
+        onShowToast('Rate Limited', 'Too many requests. Wait 30s and try again.', 'warning');
+      } else {
+        onShowToast('Connection Failed', msg, 'error');
+      }
     } finally {
       setIsTestingGroq(false);
     }
@@ -76,14 +112,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       return;
     }
     setIsTestingTodoist(true);
+    setTodoistStatus('idle');
     try {
       const res = await api.testTodoistConnection(key);
       if (res) {
+        setTodoistStatus('connected');
         onShowToast('Connected', 'Todoist API verified successfully', 'success');
       } else {
+        setTodoistStatus('error');
         onShowToast('Connection Failed', 'Verification failed', 'error');
       }
     } catch (err: any) {
+      setTodoistStatus('error');
       onShowToast('Error', err.message || 'Verification failed', 'error');
     } finally {
       setIsTestingTodoist(false);
@@ -167,9 +207,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   href="https://console.groq.com/keys"
                   target="_blank"
                   rel="noreferrer"
-                  className="text-[11px] text-[#a8ad7a] hover:underline flex items-center gap-1"
+                  className="text-xs text-[#a8ad7a] hover:text-[#d9dcc4] flex items-center gap-1"
                 >
-                  <span>Get free Groq key</span>
+                  <span>Get Free Key</span>
                   <ExternalLink className="w-3 h-3" />
                 </a>
               </div>
@@ -178,9 +218,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 <input
                   type={showGroqKey ? 'text' : 'password'}
                   value={formData.groq_api_key || ''}
-                  onChange={(e) => setFormData({ ...formData, groq_api_key: e.target.value })}
-                  placeholder="gsk_... or xai-..."
-                  className="w-full pl-3.5 pr-20 py-2.5 bg-[#0a0b08] border border-[rgba(168,173,122,0.2)] focus:border-[#a8ad7a] rounded-[10px] text-xs text-[#f2f2ec] font-mono placeholder-[#4f5b47] outline-none transition-all"
+                  onChange={(e) => {
+                    setFormData({ ...formData, groq_api_key: e.target.value });
+                    // Reset status when user edits the key
+                    if (groqStatus !== 'idle') setGroqStatus('idle');
+                  }}
+                  placeholder="gsk_..."
+                  className={`w-full pl-3.5 pr-20 py-2.5 bg-[#0a0b08] border rounded-[10px] text-xs text-[#f2f2ec] font-mono placeholder-[#4f5b47] outline-none transition-all ${
+                    groqStatus === 'connected'
+                      ? 'border-[rgba(100,200,130,0.55)] shadow-[0_0_0_3px_rgba(100,200,130,0.08)]'
+                      : groqStatus === 'error'
+                      ? 'border-[rgba(224,117,117,0.55)] shadow-[0_0_0_3px_rgba(224,117,117,0.08)]'
+                      : 'border-[rgba(168,173,122,0.2)] focus:border-[#a8ad7a]'
+                  }`}
                 />
                 <button
                   type="button"
@@ -191,20 +241,42 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </button>
               </div>
 
-              <p className="text-[11px] text-[#808375] leading-relaxed">
-                💡 <strong className="text-[#d9dcc4]">Note:</strong> Supports both <strong>GroqCloud</strong> (<code className="text-[#a8ad7a]">gsk_...</code>) and <strong>xAI Grok</strong> (<code className="text-[#a8ad7a]">xai-...</code>). If your Groq account does not have 70B enabled, select <strong className="text-[#d9dcc4]">llama-3.1-8b-instant</strong>.
-              </p>
+              {/* Inline connection status badge */}
+              {groqStatus !== 'idle' && (
+                <div className={`flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1.5 rounded-[7px] w-fit transition-all ${
+                  groqStatus === 'connected'
+                    ? 'text-[#6ec97a] bg-[rgba(100,200,130,0.1)] border border-[rgba(100,200,130,0.25)]'
+                    : 'text-[#e07575] bg-[rgba(224,117,117,0.1)] border border-[rgba(224,117,117,0.25)]'
+                }`}>
+                  <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+                    groqStatus === 'connected' ? 'bg-[#6ec97a] animate-pulse' : 'bg-[#e07575]'
+                  }`} />
+                  {groqStatus === 'connected' ? (
+                    <span>Connected — Groq AI ready · <span className="font-semibold opacity-80">{groqStatusMsg.replace('Connected · ', '')}</span></span>
+                  ) : (
+                    <span className="truncate max-w-[340px]">{groqStatusMsg || 'Connection failed — check your key'}</span>
+                  )}
+                </div>
+              )}
 
               <div className="flex items-center justify-between pt-1">
-                <select
-                  value={formData.groq_model || 'llama-3.1-8b-instant'}
+                  <select
+                  value={formData.groq_model || 'openai/gpt-oss-20b'}
                   onChange={(e) => setFormData({ ...formData, groq_model: e.target.value })}
                   className="bg-[#0a0b08] border border-[rgba(168,173,122,0.2)] text-xs text-[#d5d6cd] px-3 py-2 rounded-[8px] focus:outline-none focus:border-[#a8ad7a]"
                 >
-                  <option value="llama-3.1-8b-instant">llama-3.1-8b-instant (Fastest & Free)</option>
-                  <option value="llama-3.3-70b-versatile">llama-3.3-70b-versatile (High Accuracy)</option>
-                  <option value="gemma2-9b-it">gemma2-9b-it (Google Gemma 2 on Groq)</option>
-                  <option value="grok-beta">grok-beta (xAI Grok)</option>
+                  <optgroup label="── High Speed & Reasoning (Verified Active)">
+                    <option value="openai/gpt-oss-20b">openai/gpt-oss-20b ★ Ultra Fast & Recommended</option>
+                    <option value="openai/gpt-oss-120b">openai/gpt-oss-120b (Complex reasoning)</option>
+                    <option value="qwen/qwen3.6-27b">qwen/qwen3.6-27b (High precision)</option>
+                    <option value="groq/compound">groq/compound (Agentic synthesis)</option>
+                  </optgroup>
+                  <optgroup label="── Meta Llama & Mixtral">
+                    <option value="llama-3.3-70b-versatile">llama-3.3-70b-versatile</option>
+                    <option value="llama3-70b-8192">llama3-70b-8192 (Stable)</option>
+                    <option value="llama-3.1-8b-instant">llama-3.1-8b-instant</option>
+                    <option value="mixtral-8x7b-32768">mixtral-8x7b-32768</option>
+                  </optgroup>
                 </select>
 
                 <button
@@ -254,9 +326,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 <input
                   type={showTodoistKey ? 'text' : 'password'}
                   value={formData.todoist_api_key || ''}
-                  onChange={(e) => setFormData({ ...formData, todoist_api_key: e.target.value })}
+                  onChange={(e) => {
+                    setFormData({ ...formData, todoist_api_key: e.target.value });
+                    if (todoistStatus !== 'idle') setTodoistStatus('idle');
+                  }}
                   placeholder="Todoist API token"
-                  className="w-full pl-3.5 pr-20 py-2.5 bg-[#0a0b08] border border-[rgba(168,173,122,0.2)] focus:border-[#a8ad7a] rounded-[10px] text-xs text-[#f2f2ec] font-mono placeholder-[#4f5b47] outline-none transition-all"
+                  className={`w-full pl-3.5 pr-20 py-2.5 bg-[#0a0b08] border rounded-[10px] text-xs text-[#f2f2ec] font-mono placeholder-[#4f5b47] outline-none transition-all ${
+                    todoistStatus === 'connected'
+                      ? 'border-[rgba(100,200,130,0.55)] shadow-[0_0_0_3px_rgba(100,200,130,0.08)]'
+                      : todoistStatus === 'error'
+                      ? 'border-[rgba(224,117,117,0.55)] shadow-[0_0_0_3px_rgba(224,117,117,0.08)]'
+                      : 'border-[rgba(168,173,122,0.2)] focus:border-[#a8ad7a]'
+                  }`}
                 />
                 <button
                   type="button"
@@ -266,6 +347,20 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   {showTodoistKey ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
                 </button>
               </div>
+
+              {/* Inline Todoist status badge */}
+              {todoistStatus !== 'idle' && (
+                <div className={`flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1.5 rounded-[7px] w-fit transition-all ${
+                  todoistStatus === 'connected'
+                    ? 'text-[#6ec97a] bg-[rgba(100,200,130,0.1)] border border-[rgba(100,200,130,0.25)]'
+                    : 'text-[#e07575] bg-[rgba(224,117,117,0.1)] border border-[rgba(224,117,117,0.25)]'
+                }`}>
+                  <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+                    todoistStatus === 'connected' ? 'bg-[#6ec97a] animate-pulse' : 'bg-[#e07575]'
+                  }`} />
+                  <span>{todoistStatus === 'connected' ? 'Connected · Ready to sync' : 'Connection failed · Invalid token'}</span>
+                </div>
+              )}
 
               <div className="flex items-center justify-between pt-1">
                 <label className="flex items-center gap-2 text-xs text-[#93958a] cursor-pointer">

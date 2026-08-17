@@ -6,11 +6,8 @@ on:
       - 'v*'
   workflow_dispatch:
 
-permissions:
-  contents: write
-
 jobs:
-  build-windows:
+  build-tauri:
     runs-on: windows-latest
     steps:
       - name: Checkout repository
@@ -28,18 +25,13 @@ jobs:
       - name: Install Frontend Dependencies
         run: npm ci
 
-      - name: Build Tauri Desktop Binary & Bundles
-        run: npx @tauri-apps/cli build
-
-      - name: Publish GitHub Release
-        uses: softprops/action-gh-release@v2
-        if: startsWith(github.ref, 'refs/tags/')
+      - name: Build Tauri Desktop Application
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          name: "TaskCatch ${{ github.ref_name }}"
-          body: "⚡ TaskCatch: Universal AI-Powered Action Item Extractor for Windows."
-          draft: false
+          tagName: v__VERSION__
+          releaseName: 'TaskCatch v__VERSION__'
+          releaseBody: 'TaskCatch: Universal Action Item Extractor for Windows.'
+          releaseDraft: false
           prerelease: false
-          files: |
-            src-tauri/target/release/bundle/nsis/*.exe
-            src-tauri/target/release/bundle/msi/*.msi
-            src-tauri/target/release/taskcatch.exe

@@ -9,6 +9,7 @@ import sys
 import os
 import time
 import json
+import re
 import sqlite3
 import threading
 import traceback
@@ -344,16 +345,21 @@ def extract_url_from_text_or_window(text, window_title):
 def extract_task_with_llm(raw_text, eod_time="17:00"):
     current_time_iso = datetime.now(timezone.utc).isoformat()
     groq_key = get_setting('groq_api_key', '')
-    groq_model = get_setting('groq_model', 'llama-3.1-8b-instant')
+    groq_model = get_setting('groq_model', 'llama-3.3-70b-versatile')
 
-    if groq_key and (groq_key.strip().startswith('gsk_') or groq_key.strip().startswith('xai-')):
-        is_xai = groq_key.strip().startswith('xai-')
-        endpoint = "https://api.x.ai/v1/chat/completions" if is_xai else "https://api.groq.com/openai/v1/chat/completions"
-        target_model = "grok-2-latest" if is_xai else (groq_model if groq_model else "llama-3.1-8b-instant")
+    if groq_key and groq_key.strip().startswith('gsk_'):
+        candidate_models = [
+            groq_model or 'openai/gpt-oss-20b',
+            'openai/gpt-oss-20b',
+            'qwen/qwen3.6-27b',
+            'openai/gpt-oss-120b',
+            'groq/compound',
+            'llama-3.3-70b-versatile',
+        ]
+        seen = set()
+        unique_models = [m for m in candidate_models if not (m in seen or seen.add(m))]
 
-        try:
-            print(f"[AI ENGINE] Querying {target_model}...", flush=True)
-            system_prompt = f"""You are a high-speed, deterministic Task Extraction Engine.
+        system_prompt = f"""You are a high-speed, deterministic Task Extraction Engine.
 Analyze the user's input text and extract a clear, concise action item.
 Current Timestamp: {current_time_iso}
 User Workday End-of-Day (EOD): {eod_time}
@@ -372,64 +378,44 @@ Return ONLY valid JSON matching this schema:
   "category": "string"
 }}"""
 
-            req_payload = {
-                "model": target_model,
-                "messages": [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": raw_text}
-                ],
-                "temperature": 0.1,
-                "response_format": {"type": "json_object"}
-            }
-
-            req = urllib.request.Request(
-                endpoint,
-                data=json.dumps(req_payload).encode('utf-8'),
-                headers={
-                    "Content-Type": "application/json",
-                    "Authorization": f"Bearer {groq_key.strip()}"
-                },
-                method="POST"
-            )
-
+        for model_name in unique_models:
             try:
+                print(f"[AI ENGINE] Querying Groq ({model_name})...", flush=True)
+                req_payload = {
+                    "model": model_name,
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": raw_text}
+                    ],
+                    "temperature": 0.1,
+                    "response_format": {"type": "json_object"}
+                }
+
+                req = urllib.request.Request(
+                    "https://api.groq.com/openai/v1/chat/completions",
+                    data=json.dumps(req_payload).encode('utf-8'),
+                    headers={
+                        "Content-Type": "application/json",
+                        "Authorization": f"Bearer {groq_key.strip()}",
+                        "User-Agent": "TaskCatch/1.0"
+                    },
+                    method="POST"
+                )
+
                 with urllib.request.urlopen(req, timeout=5) as resp:
                     resp_data = json.loads(resp.read().decode('utf-8'))
-                    content = resp_data["choices"][0]["message"]["content"]
-                    parsed = json.loads(content)
-                    return {
-                        "title": parsed.get("task_title", raw_text[:80]),
-                        "deadline": parsed.get("deadline"),
-                        "priority": parsed.get("priority", "medium").lower(),
-                        "category": parsed.get("category", "General")
-                    }
-            except urllib.error.HTTPError as http_err:
-                # If 70B model not found on this account, fallback to llama-3.1-8b-instant
-                if not is_xai and target_model != "llama-3.1-8b-instant":
-                    print("[AI ENGINE] 70B model restricted. Retrying with llama-3.1-8b-instant...", flush=True)
-                    req_payload["model"] = "llama-3.1-8b-instant"
-                    retry_req = urllib.request.Request(
-                        endpoint,
-                        data=json.dumps(req_payload).encode('utf-8'),
-                        headers={
-                            "Content-Type": "application/json",
-                            "Authorization": f"Bearer {groq_key.strip()}"
-                        },
-                        method="POST"
-                    )
-                    with urllib.request.urlopen(retry_req, timeout=5) as retry_resp:
-                        resp_data = json.loads(retry_resp.read().decode('utf-8'))
-                        content = resp_data["choices"][0]["message"]["content"]
-                        parsed = json.loads(content)
+                    raw_content = resp_data["choices"][0]["message"]["content"]
+                    match = re.search(r'\{[\s\S]*\}', raw_content)
+                    if match:
+                        parsed = json.loads(match.group(0))
                         return {
-                            "title": parsed.get("task_title", raw_text[:80]),
+                            "task_title": parsed.get("task_title", "Action Item"),
                             "deadline": parsed.get("deadline"),
                             "priority": parsed.get("priority", "medium").lower(),
                             "category": parsed.get("category", "General")
                         }
-                raise http_err
-        except Exception as e:
-            print(f"[AI ENGINE] Cloud LLM error: {e}. Using deterministic local extractor.", flush=True)
+            except Exception as e:
+                print(f"[AI ENGINE] Groq ({model_name}) error: {e}. Trying fallback...", flush=True)
 
     return local_heuristic_extract(raw_text, eod_time)
 
@@ -619,11 +605,9 @@ def handle_hotkey_trigger(trigger_name="HOTKEY"):
         task_id = "task_" + os.urandom(4).hex()
         created_at = datetime.now(timezone.utc).isoformat()
 
-        extracted_title = extracted.get("task_title") or extracted.get("title") or (text.strip().split('\n')[0][:80] if text else "Action Item")
-
         new_task = {
             "id": task_id,
-            "title": extracted_title,
+            "title": extracted["task_title"],
             "raw_source_text": text,
             "source_app": win_info.get("source_app", "Desktop"),
             "source_window_title": win_info.get("source_window_title", ""),
@@ -669,7 +653,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_GET(self):
-        if self.path == '/events':
+        if self.path in ('/events', '/api/events'):
             self.send_response(200)
             self.send_header('Content-Type', 'text/event-stream')
             self.send_header('Cache-Control', 'no-cache')
@@ -753,6 +737,26 @@ class BridgeHandler(BaseHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(payload)
                 return
+
+        elif self.path == '/api/notify':
+            # CLI -> Daemon notification: broadcast task-created SSE to all connected dashboard clients
+            content_len = int(self.headers.get('Content-Length', 0))
+            body = self.rfile.read(content_len).decode('utf-8')
+            try:
+                task_data = json.loads(body) if body else {}
+                if task_data.get('id'):
+                    broadcast_sse_event('task-created', task_data)
+                payload = json.dumps({'status': 'broadcasted'}).encode('utf-8')
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Content-Length', str(len(payload)))
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.end_headers()
+                self.wfile.write(payload)
+            except Exception as e:
+                self.send_response(500)
+                self.end_headers()
+            return
 
 def start_http_server():
     server = ThreadingHTTPServer(('127.0.0.1', PORT), BridgeHandler)

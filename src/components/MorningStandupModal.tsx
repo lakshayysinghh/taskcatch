@@ -329,40 +329,18 @@ User Message: "${userText}"
 
 Provide a concise, encouraging, structured 2-3 sentence executive recommendation.`;
 
-        const apiKey = settings.groq_api_key.trim();
-        const isXai = apiKey.startsWith('xai-');
-        const endpoint = isXai
-          ? 'https://api.x.ai/v1/chat/completions'
-          : 'https://api.groq.com/openai/v1/chat/completions';
-        let targetModel = isXai ? 'grok-2-latest' : (settings.groq_model || 'llama-3.1-8b-instant');
-
-        let resp = await fetch(endpoint, {
+        const resp = await fetch('https://api.groq.com/openai/v1/chat/completions', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            Authorization: `Bearer ${apiKey}`,
+            Authorization: `Bearer ${settings.groq_api_key.trim()}`,
           },
           body: JSON.stringify({
-            model: targetModel,
+            model: settings.groq_model || 'llama-3.3-70b-versatile',
             messages: [{ role: 'user', content: prompt }],
             temperature: 0.3,
           }),
         });
-
-        if (!resp.ok && !isXai && targetModel !== 'llama-3.1-8b-instant') {
-          resp = await fetch(endpoint, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              Authorization: `Bearer ${apiKey}`,
-            },
-            body: JSON.stringify({
-              model: 'llama-3.1-8b-instant',
-              messages: [{ role: 'user', content: prompt }],
-              temperature: 0.3,
-            }),
-          });
-        }
 
         if (resp.ok) {
           const data = await resp.json();

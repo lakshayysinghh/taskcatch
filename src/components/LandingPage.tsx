@@ -32,7 +32,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   };
 
   return (
-    <div className="relative min-h-screen text-[#e4e4de] bg-[#0a0b08] font-sans selection:bg-[#33361f] selection:text-[#d9dcc4] overflow-x-hidden">
+    <div className="relative min-h-screen text-[#e4e4de] bg-[#0a0b08] font-sans selection:bg-[#33361f] selection:text-[#d9dcc4]">
       {/* Subtle 3D Ambient Mouse Parallax Layer */}
       <AmbientBackground subtle={true} />
 

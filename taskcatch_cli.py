@@ -134,6 +134,33 @@ def cmd_add(args):
     conn.commit()
     conn.close()
 
+    # Notify local daemon so web dashboard live-updates via SSE (non-blocking)
+    new_task_payload = {
+        "id": task_id,
+        "title": parsed["title"],
+        "raw_source_text": raw_text,
+        "deadline": parsed["deadline"],
+        "priority": parsed["priority"],
+        "category": parsed["category"],
+        "is_completed": False,
+        "created_at": now_iso,
+        "source_app": "CLI",
+        "source_window_title": "",
+        "source_url": None,
+    }
+    try:
+        import urllib.request, json as _json
+        req_body = _json.dumps(new_task_payload).encode("utf-8")
+        req = urllib.request.Request(
+            "http://127.0.0.1:5174/api/notify",
+            data=req_body,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        urllib.request.urlopen(req, timeout=1)
+    except Exception:
+        pass  # Daemon not running — dashboard will reflect after next refresh
+
     print(f"\n{GREEN}{BOLD}✔ Task Captured to TaskCatch!{RESET}")
     print(f"  • {BOLD}Title:{RESET}    {parsed['title']}")
     print(f"  • {BOLD}Priority:{RESET} {parsed['priority'].upper()}")

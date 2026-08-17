@@ -11,6 +11,8 @@ import {
   Layers,
   Sparkles,
   Trash2,
+  Search,
+  X,
 } from 'lucide-react';
 import { Task } from '../lib/types';
 import { TaskItem } from './TaskItem';
@@ -37,13 +39,13 @@ export const TaskList: React.FC<TaskListProps> = ({
   onDeleteTask,
   onEditTask,
   onClearCompleted,
-  onSyncTodoist,
   onOpenManualCapture,
 }) => {
   const [statusFilter, setStatusFilter] = useState<FilterStatus>('all');
   const [priorityFilter, setPriorityFilter] = useState<PriorityFilter>('all');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const [sortBy, setSortBy] = useState<SortOption>('deadline');
+  const [localSearch, setLocalSearch] = useState('');
 
   // Custom Dropdown open states
   const [isPriorityOpen, setIsPriorityOpen] = useState(false);
@@ -84,6 +86,7 @@ export const TaskList: React.FC<TaskListProps> = ({
   const completedCount = tasks.filter((t) => t.is_completed).length;
 
   const filteredTasks = useMemo(() => {
+    const activeSearch = localSearch.trim() || searchQuery.trim();
     return tasks
       .filter((t) => {
         if (statusFilter === 'active' && t.is_completed) return false;
@@ -91,8 +94,8 @@ export const TaskList: React.FC<TaskListProps> = ({
         if (priorityFilter !== 'all' && t.priority.toLowerCase() !== priorityFilter) return false;
         if (categoryFilter !== 'all' && t.category !== categoryFilter) return false;
 
-        if (searchQuery.trim()) {
-          const q = searchQuery.toLowerCase();
+        if (activeSearch) {
+          const q = activeSearch.toLowerCase();
           const matchTitle = t.title.toLowerCase().includes(q);
           const matchCategory = (t.category || '').toLowerCase().includes(q);
           const matchSource = (t.raw_source_text || '').toLowerCase().includes(q);
@@ -114,7 +117,7 @@ export const TaskList: React.FC<TaskListProps> = ({
         }
         return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
       });
-  }, [tasks, statusFilter, priorityFilter, categoryFilter, searchQuery, sortBy]);
+  }, [tasks, statusFilter, priorityFilter, categoryFilter, searchQuery, sortBy, localSearch]);
 
   // Labels for dropdown buttons
   const priorityLabels: Record<PriorityFilter, string> = {
@@ -133,6 +136,29 @@ export const TaskList: React.FC<TaskListProps> = ({
 
   return (
     <div>
+      {/* Inline Search Bar */}
+      <div className="relative mb-4">
+        <div className="absolute left-3.5 top-1/2 -translate-y-1/2 flex items-center justify-center pointer-events-none z-10">
+          <Search className="w-4 h-4 text-[#a8ad7a]" strokeWidth={2.2} />
+        </div>
+        <input
+          type="text"
+          value={localSearch}
+          onChange={(e) => setLocalSearch(e.target.value)}
+          placeholder="Search tasks, #categories, keywords..."
+          className="w-full bg-[rgba(19,20,16,0.72)] backdrop-blur-[14px] border border-[rgba(168,173,122,0.14)] hover:border-[rgba(168,173,122,0.3)] focus:border-[rgba(168,173,122,0.5)] focus:outline-none rounded-[10px] pl-10 pr-9 py-[9px] text-[13px] text-[#d5d6cd] placeholder-[#606256] transition-all shadow-sm"
+        />
+        {localSearch && (
+          <button
+            onClick={() => setLocalSearch('')}
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-[#93958a] hover:text-[#d5d6cd] transition-colors cursor-pointer z-10"
+            title="Clear search"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        )}
+      </div>
+
       {/* Filters Row */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-[18px]">
         {/* Left: Status Filter Tabs */}
@@ -338,20 +364,41 @@ export const TaskList: React.FC<TaskListProps> = ({
       {filteredTasks.length === 0 ? (
         <div className="bg-[rgba(19,20,16,0.72)] backdrop-blur-[16px] border border-[rgba(168,173,122,0.14)] rounded-[12px] p-12 text-center">
           <Inbox className="w-9 h-9 text-[#545a34] mx-auto mb-3" />
-          <div className="text-[15px] font-medium text-[#f2f2ec] mb-1">
-            No tasks found
-          </div>
-          <div className="text-[12px] text-[#93958a] max-w-sm mx-auto mb-4">
-            Highlight text in any application and press <span className="text-[#a8ad7a] font-medium">F9</span> or use quick capture.
-          </div>
-          {onOpenManualCapture && (
-            <button
-              onClick={onOpenManualCapture}
-              className="text-[13px] font-semibold px-4 py-[8px] rounded-[8px] text-[#0b0c0a] bg-gradient-to-br from-[#d9dcc4] to-[#7c8450] hover:brightness-105 transition-all cursor-pointer inline-flex items-center gap-1.5"
-            >
-              <Sparkles className="w-3.5 h-3.5" />
-              <span>Extract with AI</span>
-            </button>
+          {(localSearch.trim() || searchQuery.trim() || statusFilter !== 'all' || priorityFilter !== 'all' || categoryFilter !== 'all') ? (
+            /* No results for current filter/search */
+            <>
+              <div className="text-[15px] font-medium text-[#f2f2ec] mb-1">
+                No matching tasks
+              </div>
+              <div className="text-[12px] text-[#93958a] max-w-sm mx-auto mb-4">
+                No tasks match your current filters or search. Try clearing the search or changing filters.
+              </div>
+              <button
+                onClick={() => setLocalSearch('')}
+                className="text-[12px] font-medium px-4 py-[7px] rounded-[8px] border border-[rgba(168,173,122,0.25)] text-[#a8ad7a] hover:bg-[rgba(168,173,122,0.1)] transition-all cursor-pointer"
+              >
+                Clear search
+              </button>
+            </>
+          ) : (
+            /* Truly empty — no tasks at all */
+            <>
+              <div className="text-[15px] font-medium text-[#f2f2ec] mb-1">
+                No tasks yet
+              </div>
+              <div className="text-[12px] text-[#93958a] max-w-sm mx-auto mb-4">
+                Highlight text in any application and press <span className="text-[#a8ad7a] font-medium">F9</span> or use quick capture.
+              </div>
+              {onOpenManualCapture && (
+                <button
+                  onClick={onOpenManualCapture}
+                  className="text-[13px] font-semibold px-4 py-[8px] rounded-[8px] text-[#0b0c0a] bg-gradient-to-br from-[#d9dcc4] to-[#7c8450] hover:brightness-105 transition-all cursor-pointer inline-flex items-center gap-1.5"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>Extract with AI</span>
+                </button>
+              )}
+            </>
           )}
         </div>
       ) : (
@@ -363,7 +410,6 @@ export const TaskList: React.FC<TaskListProps> = ({
               onToggle={onToggleTask}
               onDelete={onDeleteTask}
               onEdit={onEditTask}
-              onSyncTodoist={onSyncTodoist}
             />
           ))}
         </div>
