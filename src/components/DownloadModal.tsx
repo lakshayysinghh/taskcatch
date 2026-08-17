@@ -18,7 +18,7 @@ interface DownloadModalProps {
 export const DownloadModal: React.FC<DownloadModalProps> = ({ isOpen, onClose }) => {
   const [copied, setCopied] = useState(false);
 
-  const installCommand = 'irm https://taskcatch.app/install.ps1 | iex';
+  const installCommand = 'irm https://raw.githubusercontent.com/lakshayysinghh/taskcatch/main/install.ps1 | iex';
 
   const handleCopy = () => {
     navigator.clipboard.writeText(installCommand);
@@ -28,7 +28,7 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({ isOpen, onClose })
 
   const handleDownloadExe = () => {
     // Direct download link / release fallback
-    window.open('https://github.com/taskcatch/releases/latest/download/TaskCatch_Setup.exe', '_blank');
+    window.open('https://github.com/lakshayysinghh/taskcatch/releases/latest/download/TaskCatch_Setup.exe', '_blank');
   };
 
   if (!isOpen) return null;

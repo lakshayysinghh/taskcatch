@@ -23,7 +23,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   onOpenDownload,
 }) => {
   const [copied, setCopied] = useState(false);
-  const installCmd = 'irm https://taskcatch.app/install.ps1 | iex';
+  const installCmd = 'irm https://raw.githubusercontent.com/lakshayysinghh/taskcatch/main/install.ps1 | iex';
 
   const handleCopy = () => {
     navigator.clipboard.writeText(installCmd);
@@ -70,7 +70,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
           {/* Right: Actions */}
           <div className="flex items-center gap-2.5 sm:gap-3 flex-shrink-0">
             <a
-              href="https://github.com/taskcatch/taskcatch"
+              href="https://github.com/lakshayysinghh/taskcatch"
               target="_blank"
               rel="noopener noreferrer"
               className="px-3 py-1.5 rounded-[8px] bg-white/[0.04] hover:bg-white/[0.08] border border-[rgba(168,173,122,0.2)] text-[12px] font-medium text-[#d9dcc4] transition-all flex items-center gap-1.5 no-underline cursor-pointer"
@@ -138,7 +138,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
           </button>
 
           <a
-            href="https://github.com/taskcatch/taskcatch"
+            href="https://github.com/lakshayysinghh/taskcatch"
             target="_blank"
             rel="noopener noreferrer"
             className="px-5 py-3 rounded-[10px] bg-white/[0.03] hover:bg-white/[0.08] border border-[rgba(168,173,122,0.2)] text-sm font-medium text-[#d9dcc4] transition-all flex items-center gap-2 no-underline cursor-pointer"
