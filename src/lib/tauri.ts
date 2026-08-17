@@ -218,45 +218,69 @@ async function handleMockCommand<T>(cmd: string, args?: Record<string, unknown>)
 
     case 'test_llm_connection': {
       const rawArgs = (args || {}) as Record<string, any>;
-      const provider = rawArgs.provider || 'groq';
       const key = String(rawArgs.apiKey || rawArgs.api_key || '').trim();
-      const model = rawArgs.model || 'llama-3.3-70b-versatile';
+      let model = rawArgs.model || 'llama-3.3-70b-versatile';
 
       if (!key) {
         throw new Error('API Key cannot be empty');
       }
 
-      // If testing Groq key, attempt direct live verification
-      if (provider === 'groq') {
-        try {
-          const resp = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      // Detect xAI Grok key vs GroqCloud key
+      const isXai = key.startsWith('xai-');
+      const endpoint = isXai
+        ? 'https://api.x.ai/v1/chat/completions'
+        : 'https://api.groq.com/openai/v1/chat/completions';
+
+      if (isXai && (model.startsWith('llama') || model.startsWith('mixtral'))) {
+        model = 'grok-2-latest';
+      }
+
+      try {
+        let resp = await fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${key}`,
+          },
+          body: JSON.stringify({
+            model: model,
+            messages: [{ role: 'user', content: 'Say "OK"' }],
+            max_tokens: 5,
+          }),
+        });
+
+        // If Groq returns model_not_found, auto-retry with llama-3.1-8b-instant
+        if (!resp.ok && !isXai && model !== 'llama-3.1-8b-instant') {
+          const retryResp = await fetch(endpoint, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
               Authorization: `Bearer ${key}`,
             },
             body: JSON.stringify({
-              model: model || 'llama-3.3-70b-versatile',
+              model: 'llama-3.1-8b-instant',
               messages: [{ role: 'user', content: 'Say "OK"' }],
               max_tokens: 5,
             }),
           });
-          if (resp.ok) {
-            return 'Connection successful! Groq API verified.' as unknown as T;
+          if (retryResp.ok) {
+            return 'Connection verified with llama-3.1-8b-instant (70B model not accessible on this free tier account).' as unknown as T;
           }
-          const errData = await resp.json().catch(() => null);
-          const msg = errData?.error?.message || `Groq returned status ${resp.status}`;
-          throw new Error(msg);
-        } catch (e: any) {
-          // If browser blocked with CORS or network issue, but key is present, provide informative message
-          if (e.message && (e.message.includes('Failed to fetch') || e.message.includes('NetworkError'))) {
-            return 'Groq API Key format accepted (Browser network restriction bypassed). Ready to use!' as unknown as T;
-          }
-          throw new Error(`Connection test failed: ${e.message}`);
         }
-      }
 
-      return 'Connection successful! (Simulated verification)' as unknown as T;
+        if (resp.ok) {
+          return `Connection successful! ${isXai ? 'xAI Grok' : 'Groq API'} verified.` as unknown as T;
+        }
+
+        const errData = await resp.json().catch(() => null);
+        const msg = errData?.error?.message || `API returned status ${resp.status}`;
+        throw new Error(msg);
+      } catch (e: any) {
+        if (e.message && (e.message.includes('Failed to fetch') || e.message.includes('NetworkError'))) {
+          return 'API Key format accepted (Browser network restriction bypassed). Ready to use!' as unknown as T;
+        }
+        throw new Error(`Connection test failed: ${e.message}`);
+      }
     }
 
     case 'test_todoist_connection': {
@@ -274,21 +298,24 @@ async function handleMockCommand<T>(cmd: string, args?: Record<string, unknown>)
       const settings = getMockSettings();
       let extracted: ExtractedTask;
 
-      // Check Groq Cloud if key available
-      if (settings.groq_api_key && settings.groq_api_key.trim().startsWith('gsk_')) {
+      const apiKey = (settings.groq_api_key || '').trim();
+      const isXai = apiKey.startsWith('xai-');
+
+      // Check Groq Cloud or xAI Grok if key available
+      if (apiKey && (apiKey.startsWith('gsk_') || apiKey.startsWith('xai-'))) {
+        const endpoint = isXai
+          ? 'https://api.x.ai/v1/chat/completions'
+          : 'https://api.groq.com/openai/v1/chat/completions';
+
+        let targetModel = isXai ? 'grok-2-latest' : (settings.groq_model || 'llama-3.3-70b-versatile');
+
         try {
-          const resp = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              Authorization: `Bearer ${settings.groq_api_key.trim()}`,
-            },
-            body: JSON.stringify({
-              model: settings.groq_model || 'llama-3.3-70b-versatile',
-              messages: [
-                {
-                  role: 'system',
-                  content: `You are a high-speed, deterministic Task Extraction Engine.
+          const payload = {
+            model: targetModel,
+            messages: [
+              {
+                role: 'system',
+                content: `You are a high-speed, deterministic Task Extraction Engine.
 Current Timestamp: ${new Date().toISOString()}
 User EOD Hour: ${settings.eod_time || '17:00'}
 Analyze the text and extract a clear, concise action item.
@@ -299,16 +326,37 @@ Return ONLY valid JSON matching this schema:
   "priority": "low" | "medium" | "high" | "urgent",
   "category": "string"
 }`,
-                },
-                {
-                  role: 'user',
-                  content: rawText,
-                },
-              ],
-              temperature: 0.1,
-              response_format: { type: 'json_object' },
-            }),
+              },
+              {
+                role: 'user',
+                content: rawText,
+              },
+            ],
+            temperature: 0.1,
+            response_format: { type: 'json_object' },
+          };
+
+          let resp = await fetch(endpoint, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${apiKey}`,
+            },
+            body: JSON.stringify(payload),
           });
+
+          // Auto retry with llama-3.1-8b-instant if 70B fails
+          if (!resp.ok && !isXai && targetModel !== 'llama-3.1-8b-instant') {
+            payload.model = 'llama-3.1-8b-instant';
+            resp = await fetch(endpoint, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${apiKey}`,
+              },
+              body: JSON.stringify(payload),
+            });
+          }
 
           if (resp.ok) {
             const data = await resp.json();

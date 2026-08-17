@@ -167,9 +167,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   href="https://console.groq.com/keys"
                   target="_blank"
                   rel="noreferrer"
-                  className="text-xs text-[#a8ad7a] hover:text-[#d9dcc4] flex items-center gap-1"
+                  className="text-[11px] text-[#a8ad7a] hover:underline flex items-center gap-1"
                 >
-                  <span>Get Free Key</span>
+                  <span>Get free Groq key</span>
                   <ExternalLink className="w-3 h-3" />
                 </a>
               </div>
@@ -179,7 +179,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   type={showGroqKey ? 'text' : 'password'}
                   value={formData.groq_api_key || ''}
                   onChange={(e) => setFormData({ ...formData, groq_api_key: e.target.value })}
-                  placeholder="gsk_..."
+                  placeholder="gsk_... or xai-..."
                   className="w-full pl-3.5 pr-20 py-2.5 bg-[#0a0b08] border border-[rgba(168,173,122,0.2)] focus:border-[#a8ad7a] rounded-[10px] text-xs text-[#f2f2ec] font-mono placeholder-[#4f5b47] outline-none transition-all"
                 />
                 <button
@@ -191,15 +191,21 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </button>
               </div>
 
+              <p className="text-[11px] text-[#808375] leading-relaxed">
+                💡 <strong className="text-[#d9dcc4]">Note:</strong> Supports both <strong>GroqCloud</strong> (<code className="text-[#a8ad7a]">gsk_...</code>) and <strong>xAI Grok</strong> (<code className="text-[#a8ad7a]">xai-...</code>). If your Groq account does not have 70B enabled, select <strong className="text-[#d9dcc4]">llama-3.1-8b-instant</strong>.
+              </p>
+
               <div className="flex items-center justify-between pt-1">
                 <select
-                  value={formData.groq_model || 'llama-3.3-70b-versatile'}
+                  value={formData.groq_model || 'llama-3.1-8b-instant'}
                   onChange={(e) => setFormData({ ...formData, groq_model: e.target.value })}
                   className="bg-[#0a0b08] border border-[rgba(168,173,122,0.2)] text-xs text-[#d5d6cd] px-3 py-2 rounded-[8px] focus:outline-none focus:border-[#a8ad7a]"
                 >
-                  <option value="llama-3.3-70b-versatile">llama-3.3-70b-versatile (Recommended)</option>
-                  <option value="llama-3.1-8b-instant">llama-3.1-8b-instant (Fastest)</option>
+                  <option value="llama-3.1-8b-instant">llama-3.1-8b-instant (Fastest & Free for all accounts)</option>
+                  <option value="llama-3.3-70b-versatile">llama-3.3-70b-versatile (Higher accuracy)</option>
+                  <option value="llama3-70b-8192">llama3-70b-8192</option>
                   <option value="mixtral-8x7b-32768">mixtral-8x7b-32768</option>
+                  <option value="grok-2-latest">grok-2-latest (xAI Grok)</option>
                 </select>
 
                 <button

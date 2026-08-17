@@ -344,11 +344,15 @@ def extract_url_from_text_or_window(text, window_title):
 def extract_task_with_llm(raw_text, eod_time="17:00"):
     current_time_iso = datetime.now(timezone.utc).isoformat()
     groq_key = get_setting('groq_api_key', '')
-    groq_model = get_setting('groq_model', 'llama-3.3-70b-versatile')
+    groq_model = get_setting('groq_model', 'llama-3.1-8b-instant')
 
-    if groq_key and groq_key.strip().startswith('gsk_'):
+    if groq_key and (groq_key.strip().startswith('gsk_') or groq_key.strip().startswith('xai-')):
+        is_xai = groq_key.strip().startswith('xai-')
+        endpoint = "https://api.x.ai/v1/chat/completions" if is_xai else "https://api.groq.com/openai/v1/chat/completions"
+        target_model = "grok-2-latest" if is_xai else (groq_model if groq_model else "llama-3.1-8b-instant")
+
         try:
-            print(f"[AI ENGINE] Querying Groq ({groq_model})...", flush=True)
+            print(f"[AI ENGINE] Querying {target_model}...", flush=True)
             system_prompt = f"""You are a high-speed, deterministic Task Extraction Engine.
 Analyze the user's input text and extract a clear, concise action item.
 Current Timestamp: {current_time_iso}
@@ -369,7 +373,7 @@ Return ONLY valid JSON matching this schema:
 }}"""
 
             req_payload = {
-                "model": groq_model,
+                "model": target_model,
                 "messages": [
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": raw_text}
@@ -379,7 +383,7 @@ Return ONLY valid JSON matching this schema:
             }
 
             req = urllib.request.Request(
-                "https://api.groq.com/openai/v1/chat/completions",
+                endpoint,
                 data=json.dumps(req_payload).encode('utf-8'),
                 headers={
                     "Content-Type": "application/json",
@@ -388,18 +392,44 @@ Return ONLY valid JSON matching this schema:
                 method="POST"
             )
 
-            with urllib.request.urlopen(req, timeout=4) as resp:
-                resp_data = json.loads(resp.read().decode('utf-8'))
-                content = resp_data["choices"][0]["message"]["content"]
-                parsed = json.loads(content)
-                return {
-                    "task_title": parsed.get("task_title", "Action Item"),
-                    "deadline": parsed.get("deadline"),
-                    "priority": parsed.get("priority", "medium").lower(),
-                    "category": parsed.get("category", "General")
-                }
+            try:
+                with urllib.request.urlopen(req, timeout=5) as resp:
+                    resp_data = json.loads(resp.read().decode('utf-8'))
+                    content = resp_data["choices"][0]["message"]["content"]
+                    parsed = json.loads(content)
+                    return {
+                        "title": parsed.get("task_title", raw_text[:80]),
+                        "deadline": parsed.get("deadline"),
+                        "priority": parsed.get("priority", "medium").lower(),
+                        "category": parsed.get("category", "General")
+                    }
+            except urllib.error.HTTPError as http_err:
+                # If 70B model not found on this account, fallback to llama-3.1-8b-instant
+                if not is_xai and target_model != "llama-3.1-8b-instant":
+                    print("[AI ENGINE] 70B model restricted. Retrying with llama-3.1-8b-instant...", flush=True)
+                    req_payload["model"] = "llama-3.1-8b-instant"
+                    retry_req = urllib.request.Request(
+                        endpoint,
+                        data=json.dumps(req_payload).encode('utf-8'),
+                        headers={
+                            "Content-Type": "application/json",
+                            "Authorization": f"Bearer {groq_key.strip()}"
+                        },
+                        method="POST"
+                    )
+                    with urllib.request.urlopen(retry_req, timeout=5) as retry_resp:
+                        resp_data = json.loads(retry_resp.read().decode('utf-8'))
+                        content = resp_data["choices"][0]["message"]["content"]
+                        parsed = json.loads(content)
+                        return {
+                            "title": parsed.get("task_title", raw_text[:80]),
+                            "deadline": parsed.get("deadline"),
+                            "priority": parsed.get("priority", "medium").lower(),
+                            "category": parsed.get("category", "General")
+                        }
+                raise http_err
         except Exception as e:
-            print(f"[AI ENGINE] Groq query error: {e}. Using local extractor.", flush=True)
+            print(f"[AI ENGINE] Cloud LLM error: {e}. Using deterministic local extractor.", flush=True)
 
     return local_heuristic_extract(raw_text, eod_time)
 
