@@ -14,18 +14,32 @@ if (-not (Test-Path $installDir)) {
     New-Item -ItemType Directory -Path $installDir -Force | Out-Null
 }
 
-Write-Host "✔ [1/3] Setting up installation in $installDir..." -ForegroundColor Gray
+Write-Host "✔ [1/4] Setting up installation in $installDir..." -ForegroundColor Gray
 
-# Download background daemon script
-$daemonUrl = "https://raw.githubusercontent.com/lakshayysinghh/taskcatch/main/taskcatch_daemon.py"
+# Download background daemon and CLI scripts
+$baseUrl = "https://raw.githubusercontent.com/lakshayysinghh/taskcatch/main"
 $daemonPath = Join-Path $installDir "taskcatch_daemon.py"
+$cliPath = Join-Path $installDir "taskcatch_cli.py"
+$cmdPath = Join-Path $installDir "taskcatch.cmd"
+$tcPath = Join-Path $installDir "tc.cmd"
 
 try {
-    Invoke-WebRequest -Uri $daemonUrl -OutFile $daemonPath -UseBasicParsing
-    Write-Host "✔ [2/3] Registered global background hooks (F9, Alt+C)" -ForegroundColor Gray
+    Invoke-WebRequest -Uri "$baseUrl/taskcatch_daemon.py" -OutFile $daemonPath -UseBasicParsing
+    Invoke-WebRequest -Uri "$baseUrl/taskcatch_cli.py" -OutFile $cliPath -UseBasicParsing
+    Invoke-WebRequest -Uri "$baseUrl/taskcatch.cmd" -OutFile $cmdPath -UseBasicParsing
+    Invoke-WebRequest -Uri "$baseUrl/tc.cmd" -OutFile $tcPath -UseBasicParsing
+    Write-Host "✔ [2/4] Registered global background hooks (F9, Alt+C)" -ForegroundColor Gray
 } catch {
     Write-Host "! Note: Running in lightweight standalone mode" -ForegroundColor Yellow
 }
+
+# Add install directory to user PATH if not present
+$userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+if ($userPath -notlike "*$installDir*") {
+    [Environment]::SetEnvironmentVariable("Path", "$userPath;$installDir", "User")
+    $env:Path = "$env:Path;$installDir"
+}
+Write-Host "✔ [3/4] Configured Terminal CLI (commands: 'taskcatch' & 'tc')" -ForegroundColor Gray
 
 # Create desktop launcher batch script
 $launcherPath = Join-Path $installDir "Launch-TaskCatch.vbs"
@@ -46,11 +60,12 @@ $shortcut.Description = "TaskCatch - Universal Action Item Extractor"
 $shortcut.WorkingDirectory = $installDir
 $shortcut.Save()
 
-Write-Host "✔ [3/3] TaskCatch installed successfully!" -ForegroundColor Green
+Write-Host "✔ [4/4] TaskCatch installed successfully!" -ForegroundColor Green
 Write-Host ""
-Write-Host "------------------------------------------------------" -ForegroundColor DarkGray
+Write-Host "------------------------------------------------------------------" -ForegroundColor DarkGray
 Write-Host "  ✨ READY TO USE!" -ForegroundColor White
-Write-Host "  👉 Highlight text anywhere & press [ F9 ] to capture." -ForegroundColor Yellow
-Write-Host "  👉 Web Dashboard: https://github.com/lakshayysinghh/taskcatch" -ForegroundColor Cyan
-Write-Host "------------------------------------------------------" -ForegroundColor DarkGray
+Write-Host "  👉 Press [ F9 ] anywhere on highlighted text to capture tasks." -ForegroundColor Yellow
+Write-Host "  👉 Use in PowerShell/CMD: 'taskcatch list' or 'taskcatch add ...'" -ForegroundColor Cyan
+Write-Host "  👉 Web Dashboard: https://github.com/lakshayysinghh/taskcatch" -ForegroundColor Gray
+Write-Host "------------------------------------------------------------------" -ForegroundColor DarkGray
 Write-Host ""
