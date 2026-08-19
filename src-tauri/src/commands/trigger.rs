@@ -3,7 +3,7 @@ use tauri_plugin_notification::NotificationExt;
 use log::{error, info, warn};
 use uuid::Uuid;
 use chrono::Utc;
-use crate::models::{ExtractionResult, ExtractedTask, Task};
+use crate::models::{ExtractionResult, Task};
 use crate::services::db::Database;
 use crate::services::clipboard::ClipboardService;
 use crate::services::llm::LlmService;

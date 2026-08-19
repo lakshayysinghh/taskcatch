@@ -2,7 +2,7 @@ use std::thread;
 use std::time::Duration;
 use arboard::Clipboard;
 use enigo::{Direction, Enigo, Key, Keyboard, Settings};
-use log::{debug, error, info, warn};
+use log::{debug, info};
 
 pub struct ClipboardService;
 
