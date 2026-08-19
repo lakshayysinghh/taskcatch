@@ -104,14 +104,14 @@ export function App() {
     if (isTauri()) {
       import('@tauri-apps/api/event').then(({ listen }) => {
         listen<Task>('task-created', (event) => {
-          setTasks((prev) => {
-            const updated = [event.payload, ...prev.filter((t) => t.id !== event.payload.id)];
-            try {
-              localStorage.setItem('taskcatch_mock_tasks', JSON.stringify(updated));
-            } catch {}
-            return updated;
-          });
-          setHudTask(event.payload);
+          const newTask = event.payload;
+          setTasks((prev) => [newTask, ...prev.filter((t) => t.id !== newTask.id)]);
+          setHudTask(newTask);
+          // Refresh from SQLite to get authoritative list (catches any other changes)
+          refreshTasks();
+          if (settings.sound_feedback_enabled ?? true) {
+            playChimeSound(true);
+          }
         });
         listen('open-settings', () => {
           setIsSettingsOpen(true);

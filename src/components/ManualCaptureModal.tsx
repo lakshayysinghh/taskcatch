@@ -111,6 +111,12 @@ export const ManualCaptureModal: React.FC<ManualCaptureModalProps> = ({
               rows={3}
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
+              onKeyDown={(e) => {
+                if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+                  e.preventDefault();
+                  handleExtractOrQuickAdd();
+                }
+              }}
               placeholder="e.g. Deploy hotfix for token expiry tomorrow at 4pm #dev p:urgent"
               className="w-full px-3.5 py-2.5 bg-[#0a0b08] border border-[rgba(168,173,122,0.2)] focus:border-[#a8ad7a] rounded-[10px] text-xs text-[#f2f2ec] placeholder-[#4f5b47] outline-none transition-all resize-none"
               autoFocus

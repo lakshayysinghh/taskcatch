@@ -103,16 +103,12 @@ const saveMockSettings = (settings: AppSettings) => {
 // Safe invoke wrapper
 async function invokeTauri<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   if (isTauri()) {
-    try {
-      // Dynamic import to avoid build issues in pure browser
-      const { invoke } = await import('@tauri-apps/api/core');
-      return await invoke<T>(cmd, args);
-    } catch (err) {
-      console.warn(`Tauri invoke '${cmd}' failed, falling back to browser simulator:`, err);
-    }
+    // Dynamic import to avoid build issues in pure browser
+    const { invoke } = await import('@tauri-apps/api/core');
+    return await invoke<T>(cmd, args);
   }
 
-  // --- BROWSER SIMULATOR FALLBACK ---
+  // --- BROWSER SIMULATOR FALLBACK (only when not in Tauri) ---
   return handleMockCommand<T>(cmd, args);
 }
 
