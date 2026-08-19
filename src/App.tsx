@@ -286,11 +286,37 @@ export function App() {
   const handleSyncTodoist = async (taskId: string) => {
     try {
       showToast('Syncing', 'Sending task to Todoist...', 'info');
-      const { invoke } = await import('@tauri-apps/api/core');
-      await invoke('sync_task_to_todoist', { id: taskId });
-      showToast('Todoist Synced', 'Task added to Todoist inbox.', 'success');
+      if (isTauri()) {
+        // Native Tauri path — uses Rust backend (reqwest + SQLite)
+        const { invoke } = await import('@tauri-apps/api/core');
+        await invoke('sync_task_to_todoist', { id: taskId });
+      } else {
+        // Browser / Vercel path — call Todoist REST API directly
+        const task = tasks.find((t) => t.id === taskId);
+        if (!task) throw new Error('Task not found');
+        const todoistKey = settings.todoist_api_key?.trim();
+        if (!todoistKey) throw new Error('Todoist API key not set in Settings (Ctrl+,)');
+        const resp = await fetch('https://api.todoist.com/rest/v2/tasks', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${todoistKey}`,
+          },
+          body: JSON.stringify({
+            content: task.title,
+            due_string: task.deadline ? new Date(task.deadline).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : undefined,
+            priority: task.priority === 'urgent' ? 4 : task.priority === 'high' ? 3 : task.priority === 'medium' ? 2 : 1,
+            description: task.raw_source_text || '',
+          }),
+        });
+        if (!resp.ok) {
+          const err = await resp.json().catch(() => ({}));
+          throw new Error((err as any).error || `Todoist API error: ${resp.status}`);
+        }
+      }
+      showToast('Todoist Synced ✅', 'Task added to Todoist inbox.', 'success');
     } catch (err: any) {
-      showToast('Todoist Error', err.message || 'Make sure Todoist API key is set.', 'error');
+      showToast('Todoist Error', err.message || 'Make sure Todoist API key is set in Settings.', 'error');
     }
   };
 

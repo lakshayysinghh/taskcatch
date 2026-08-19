@@ -54,6 +54,9 @@ impl Database {
                 id TEXT PRIMARY KEY,
                 title TEXT NOT NULL,
                 raw_source_text TEXT,
+                source_app TEXT,
+                source_window_title TEXT,
+                source_url TEXT,
                 deadline DATETIME,
                 priority TEXT DEFAULT 'medium',
                 category TEXT DEFAULT 'General',
@@ -71,33 +74,46 @@ impl Database {
             "
         )?;
 
+        // Safe migration: add new columns to existing databases (no-op if they already exist)
+        for col_sql in &[
+            "ALTER TABLE tasks ADD COLUMN source_app TEXT",
+            "ALTER TABLE tasks ADD COLUMN source_window_title TEXT",
+            "ALTER TABLE tasks ADD COLUMN source_url TEXT",
+        ] {
+            let _ = conn.execute(col_sql, []);
+        }
+
         Ok(())
     }
 
     pub fn get_all_tasks(&self) -> Result<Vec<Task>, rusqlite::Error> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, title, raw_source_text, deadline, priority, category, is_completed, created_at 
+            "SELECT id, title, raw_source_text, source_app, source_window_title, source_url,
+                    deadline, priority, category, is_completed, created_at 
              FROM tasks 
              ORDER BY is_completed ASC, 
-                      CASE 
-                        WHEN deadline IS NOT NULL AND deadline != '' THEN deadline 
-                        ELSE '9999-12-31' 
-                      END ASC, 
-                      created_at DESC"
+                       CASE 
+                         WHEN deadline IS NOT NULL AND deadline != '' THEN deadline 
+                         ELSE '9999-12-31' 
+                       END ASC, 
+                       created_at DESC"
         )?;
 
         let task_iter = stmt.query_map([], |row| {
-            let is_completed_num: i32 = row.get(6)?;
+            let is_completed_num: i32 = row.get(9)?;
             Ok(Task {
                 id: row.get(0)?,
                 title: row.get(1)?,
                 raw_source_text: row.get(2)?,
-                deadline: row.get(3)?,
-                priority: row.get(4)?,
-                category: row.get(5)?,
+                source_app: row.get(3)?,
+                source_window_title: row.get(4)?,
+                source_url: row.get(5)?,
+                deadline: row.get(6)?,
+                priority: row.get(7)?,
+                category: row.get(8)?,
                 is_completed: is_completed_num != 0,
-                created_at: row.get(7)?,
+                created_at: row.get(10)?,
             })
         })?;
 
@@ -111,21 +127,25 @@ impl Database {
     pub fn get_task_by_id(&self, id: &str) -> Result<Option<Task>, rusqlite::Error> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, title, raw_source_text, deadline, priority, category, is_completed, created_at 
+            "SELECT id, title, raw_source_text, source_app, source_window_title, source_url,
+                    deadline, priority, category, is_completed, created_at 
              FROM tasks WHERE id = ?1"
         )?;
 
         stmt.query_row(params![id], |row| {
-            let is_completed_num: i32 = row.get(6)?;
+            let is_completed_num: i32 = row.get(9)?;
             Ok(Task {
                 id: row.get(0)?,
                 title: row.get(1)?,
                 raw_source_text: row.get(2)?,
-                deadline: row.get(3)?,
-                priority: row.get(4)?,
-                category: row.get(5)?,
+                source_app: row.get(3)?,
+                source_window_title: row.get(4)?,
+                source_url: row.get(5)?,
+                deadline: row.get(6)?,
+                priority: row.get(7)?,
+                category: row.get(8)?,
                 is_completed: is_completed_num != 0,
-                created_at: row.get(7)?,
+                created_at: row.get(10)?,
             })
         }).optional()
     }
@@ -138,12 +158,16 @@ impl Database {
         let category = input.category.unwrap_or_else(|| "General".to_string());
 
         conn.execute(
-            "INSERT INTO tasks (id, title, raw_source_text, deadline, priority, category, is_completed, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0, ?7)",
+            "INSERT INTO tasks (id, title, raw_source_text, source_app, source_window_title, source_url,
+                               deadline, priority, category, is_completed, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 0, ?10)",
             params![
                 id,
                 input.title,
                 input.raw_source_text,
+                input.source_app,
+                input.source_window_title,
+                input.source_url,
                 input.deadline,
                 priority,
                 category,
@@ -155,6 +179,9 @@ impl Database {
             id,
             title: input.title,
             raw_source_text: input.raw_source_text,
+            source_app: input.source_app,
+            source_window_title: input.source_window_title,
+            source_url: input.source_url,
             deadline: input.deadline,
             priority,
             category,
@@ -166,12 +193,16 @@ impl Database {
     pub fn insert_full_task(&self, task: &Task) -> Result<(), rusqlite::Error> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "INSERT INTO tasks (id, title, raw_source_text, deadline, priority, category, is_completed, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            "INSERT INTO tasks (id, title, raw_source_text, source_app, source_window_title, source_url,
+                               deadline, priority, category, is_completed, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
             params![
                 task.id,
                 task.title,
                 task.raw_source_text,
+                task.source_app,
+                task.source_window_title,
+                task.source_url,
                 task.deadline,
                 task.priority,
                 task.category,
@@ -188,6 +219,9 @@ impl Database {
 
         let updated_title = input.title.unwrap_or(existing.title);
         let updated_raw_source = input.raw_source_text.or(existing.raw_source_text);
+        let updated_source_app = input.source_app.or(existing.source_app);
+        let updated_source_window = input.source_window_title.or(existing.source_window_title);
+        let updated_source_url = input.source_url.or(existing.source_url);
         let updated_deadline = input.deadline.or(existing.deadline);
         let updated_priority = input.priority.unwrap_or(existing.priority);
         let updated_category = input.category.unwrap_or(existing.category);
@@ -196,11 +230,15 @@ impl Database {
         let conn = self.conn.lock().unwrap();
         conn.execute(
             "UPDATE tasks 
-             SET title = ?1, raw_source_text = ?2, deadline = ?3, priority = ?4, category = ?5, is_completed = ?6
-             WHERE id = ?7",
+             SET title = ?1, raw_source_text = ?2, source_app = ?3, source_window_title = ?4,
+                 source_url = ?5, deadline = ?6, priority = ?7, category = ?8, is_completed = ?9
+             WHERE id = ?10",
             params![
                 updated_title,
                 updated_raw_source,
+                updated_source_app,
+                updated_source_window,
+                updated_source_url,
                 updated_deadline,
                 updated_priority,
                 updated_category,
@@ -213,6 +251,9 @@ impl Database {
             id: input.id,
             title: updated_title,
             raw_source_text: updated_raw_source,
+            source_app: updated_source_app,
+            source_window_title: updated_source_window,
+            source_url: updated_source_url,
             deadline: updated_deadline,
             priority: updated_priority,
             category: updated_category,
