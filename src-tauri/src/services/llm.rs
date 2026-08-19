@@ -206,6 +206,9 @@ impl LlmService {
 
             let task = ExtractedTask {
                 task_title: if title.is_empty() { Self::fallback_title(fallback_raw_text) } else { title },
+                source_app: None,
+                source_window_title: None,
+                source_url: None,
                 deadline,
                 priority: if ["low", "medium", "high", "urgent"].contains(&priority.as_str()) { priority } else { "medium".to_string() },
                 category: if category.is_empty() { "General".to_string() } else { category },
@@ -229,6 +232,9 @@ impl LlmService {
         warn!("LLM output could not be parsed as JSON. Using heuristic fallback.");
         Ok(ExtractedTask {
             task_title: Self::fallback_title(fallback_raw_text),
+            source_app: None,
+            source_window_title: None,
+            source_url: None,
             deadline: None,
             priority: "medium".to_string(),
             category: "General".to_string(),
