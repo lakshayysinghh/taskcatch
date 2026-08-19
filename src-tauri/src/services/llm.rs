@@ -23,25 +23,42 @@ impl LlmService {
 
         // 1. Try Groq if key is available
         if let Some(ref groq_key) = settings.groq_api_key {
-            if !groq_key.trim().is_empty() {
-                info!("Attempting extraction via Groq (model: {})...", settings.groq_model);
-                match Self::call_chat_completion(
-                    "https://api.groq.com/openai/v1/chat/completions",
-                    groq_key,
-                    &settings.groq_model,
-                    &prompt_system,
-                    trimmed_text,
-                    true,
-                ).await {
-                    Ok(response_text) => {
-                        debug!("Groq raw response: {}", response_text);
-                        match Self::parse_extracted_task(&response_text, trimmed_text) {
-                            Ok(task) => return Ok(task),
-                            Err(e) => warn!("Failed to parse Groq response JSON: {}. Trying fallback...", e),
-                        }
+            let key_str = groq_key.trim();
+            if !key_str.is_empty() {
+                let mut candidate_models = vec![settings.groq_model.as_str()];
+                for fallback in &[
+                    "openai/gpt-oss-20b",
+                    "qwen/qwen3.6-27b",
+                    "openai/gpt-oss-120b",
+                    "groq/compound",
+                    "llama-3.3-70b-versatile",
+                    "llama3-70b-8192",
+                    "llama-3.1-8b-instant",
+                ] {
+                    if !candidate_models.contains(fallback) {
+                        candidate_models.push(fallback);
                     }
-                    Err(e) => {
-                        warn!("Groq API call failed: {}. Checking for fallback...", e);
+                }
+
+                for model in candidate_models {
+                    info!("Attempting extraction via Groq (model: {})...", model);
+                    match Self::call_chat_completion(
+                        "https://api.groq.com/openai/v1/chat/completions",
+                        key_str,
+                        model,
+                        &prompt_system,
+                        trimmed_text,
+                        true,
+                    ).await {
+                        Ok(response_text) => {
+                            debug!("Groq raw response: {}", response_text);
+                            if let Ok(task) = Self::parse_extracted_task(&response_text, trimmed_text) {
+                                return Ok(task);
+                            }
+                        }
+                        Err(e) => {
+                            warn!("Groq API call for model {} failed: {}. Trying next candidate...", model, e);
+                        }
                     }
                 }
             }
@@ -49,11 +66,12 @@ impl LlmService {
 
         // 2. Try OpenAI fallback if key is available
         if let Some(ref openai_key) = settings.openai_api_key {
-            if !openai_key.trim().is_empty() {
+            let key_str = openai_key.trim();
+            if !key_str.is_empty() {
                 info!("Attempting extraction via OpenAI (model: {})...", settings.openai_model);
                 match Self::call_chat_completion(
                     "https://api.openai.com/v1/chat/completions",
-                    openai_key,
+                    key_str,
                     &settings.openai_model,
                     &prompt_system,
                     trimmed_text,
@@ -61,22 +79,28 @@ impl LlmService {
                 ).await {
                     Ok(response_text) => {
                         debug!("OpenAI raw response: {}", response_text);
-                        return Self::parse_extracted_task(&response_text, trimmed_text);
+                        if let Ok(task) = Self::parse_extracted_task(&response_text, trimmed_text) {
+                            return Ok(task);
+                        }
                     }
                     Err(e) => {
-                        error!("OpenAI API call failed: {}", e);
-                        return Err(format!("OpenAI extraction failed: {}", e));
+                        warn!("OpenAI API call failed: {}", e);
                     }
                 }
             }
         }
 
-        // 3. If no API key configured or all failed
-        if settings.groq_api_key.is_none() && settings.openai_api_key.is_none() {
-            Err("No API Key configured. Please add your Groq or OpenAI API Key in Settings.".to_string())
-        } else {
-            Err("Failed to extract task with configured AI providers. Please check your API key and connection.".to_string())
-        }
+        // 3. Deterministic heuristic fallback so task capture NEVER fails
+        warn!("AI providers unavailable or failed. Using local heuristic extraction.");
+        Ok(ExtractedTask {
+            task_title: Self::fallback_title(trimmed_text),
+            source_app: None,
+            source_window_title: None,
+            source_url: None,
+            deadline: None,
+            priority: "medium".to_string(),
+            category: "General".to_string(),
+        })
     }
 
     fn build_system_prompt(current_timestamp_iso: &str, custom_instructions: Option<&str>) -> String {
@@ -289,6 +313,29 @@ impl LlmService {
         } else {
             "https://api.openai.com/v1/chat/completions"
         };
+
+        if provider == "groq" {
+            let candidate_models = [
+                model,
+                "openai/gpt-oss-20b",
+                "qwen/qwen3.6-27b",
+                "openai/gpt-oss-120b",
+                "groq/compound",
+                "llama-3.3-70b-versatile",
+            ];
+            for m in candidate_models {
+                if let Ok(_) = Self::call_chat_completion(
+                    endpoint,
+                    api_key,
+                    m,
+                    "You are a connection test agent. Reply with valid JSON: {\"status\": \"ok\", \"message\": \"Connection successful!\"}",
+                    "Test connection",
+                    true,
+                ).await {
+                    return Ok(format!("Groq connection verified ✓ (Model: {})", m));
+                }
+            }
+        }
 
         Self::call_chat_completion(
             endpoint,

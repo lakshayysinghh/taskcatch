@@ -69,7 +69,7 @@ impl Default for AppSettings {
     fn default() -> Self {
         Self {
             groq_api_key: None,
-            groq_model: "llama-3.3-70b-versatile".to_string(),
+            groq_model: "openai/gpt-oss-20b".to_string(),
             openai_api_key: None,
             openai_model: "gpt-4o-mini".to_string(),
             todoist_api_key: None,
