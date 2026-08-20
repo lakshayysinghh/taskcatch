@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { open } from '@tauri-apps/plugin-shell';
+import { safeOpen as open } from '../lib/tauri';
 import { X, Download, Copy, Check, Terminal, ExternalLink } from 'lucide-react';
 
 export function DownloadModal({ isOpen, onClose }) {

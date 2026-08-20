@@ -1,36 +1,39 @@
 import React, { useEffect, useState } from 'react';
-import { listen } from '@tauri-apps/api/event';
-import { getCurrentWindow } from '@tauri-apps/api/window';
+import { safeListen as listen, isTauri } from './lib/tauri';
 
 export function Overlay() {
   const [status, setStatus] = useState('idle');
   const [isVisible, setIsVisible] = useState(false);
 
   useEffect(() => {
-    const appWindow = getCurrentWindow();
+    let appWindow = null;
+    if (isTauri) {
+      import('@tauri-apps/api/window').then(({ getCurrentWindow }) => {
+        appWindow = getCurrentWindow();
+      }).catch(() => {});
+    }
 
     const unlistenStatusUpdate = listen('status-update', async (event) => {
       const payload = event.payload;
       
-      if (payload.state === 'processing') {
+      if (payload?.state === 'processing') {
         setStatus('processing');
         setIsVisible(true);
-        await appWindow.show();
-      } else if (payload.state === 'done') {
+        if (appWindow) await appWindow.show();
+      } else if (payload?.state === 'done') {
         setStatus('done');
         // Fade out after a short delay
         setTimeout(async () => {
           setIsVisible(false);
           setTimeout(async () => {
-            await appWindow.hide();
-            setStatus('idle');
-          }, 300); // Wait for fade out animation
+            if (appWindow) await appWindow.hide();
+          }, 300);
         }, 1500);
       }
     });
 
     return () => {
-      unlistenStatusUpdate.then(unlisten => unlisten());
+      unlistenStatusUpdate.then((u) => typeof u === 'function' && u());
     };
   }, []);
 

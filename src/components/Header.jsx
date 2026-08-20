@@ -1,5 +1,5 @@
 import React from 'react';
-import { open } from '@tauri-apps/plugin-shell';
+import { safeOpen as open } from '../lib/tauri';
 import { Zap, Download, Settings, ArrowLeft, ArrowRight, Github } from 'lucide-react';
 
 export function Header({ currentView, onToggleView, onOpenDownload, onOpenSettings }) {

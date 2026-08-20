@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { safeInvoke as invoke } from '../lib/tauri';
 import { X, Plus, Tag, Flame } from 'lucide-react';
 
 export function NewTaskModal({ isOpen, onClose, onTaskCreated }) {

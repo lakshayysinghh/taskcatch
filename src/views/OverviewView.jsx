@@ -1,5 +1,5 @@
 import React from 'react';
-import { open } from '@tauri-apps/plugin-shell';
+import { safeOpen as open } from '../lib/tauri';
 import { Zap, Shield, Cpu, ArrowRight, Download, Terminal, Sparkles, Github, Copy } from 'lucide-react';
 
 export function OverviewView({ onOpenDashboard, onOpenDownload }) {

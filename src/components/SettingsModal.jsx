@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { open } from '@tauri-apps/plugin-shell';
-import { invoke } from '@tauri-apps/api/core';
+import { safeOpen as open, safeInvoke as invoke } from '../lib/tauri';
 import { X, Key, Bot, Sliders, CheckCircle2, AlertCircle, Loader2, Volume2, ShieldCheck } from 'lucide-react';
 
 export function SettingsModal({ isOpen, onClose, onConfigSaved }) {

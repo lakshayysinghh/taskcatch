@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { listen } from '@tauri-apps/api/event';
-import { invoke } from '@tauri-apps/api/core';
+import { safeListen as listen, safeInvoke as invoke } from '../lib/tauri';
 
 export function TaskView() {
   const [tasks, setTasks] = useState([]);

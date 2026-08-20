@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { safeInvoke as invoke } from '../lib/tauri';
 import { Button } from '../components/Button';
 
 export function SettingsView() {

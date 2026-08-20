@@ -1,7 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { listen } from '@tauri-apps/api/event';
-import { invoke } from '@tauri-apps/api/core';
-import { isPermissionGranted, requestPermission, sendNotification } from '@tauri-apps/plugin-notification';
+import { safeInvoke as invoke, safeListen as listen, safeSendNotification } from './lib/tauri';
 import { Search, ChevronDown, Trash2, Inbox, Sparkles, X, Clock, CheckCircle, Circle, Flame, Layers, SortAsc, Tag } from 'lucide-react';
 
 import { AmbientBackground } from './components/AmbientBackground';
@@ -42,58 +40,16 @@ export function App() {
   const [editingTask, setEditingTask] = useState(null);
   const [isNewTaskOpen, setIsNewTaskOpen] = useState(false);
 
-  const SAMPLE_TASKS = [
-    {
-      id: 'sample-1',
-      content: 'Deploy hotfix for authentication token expiry',
-      original_text: 'Slack #dev-ops: We need to deploy the hotfix for the token expiry ASAP before 5 PM release.',
-      priority: 'Urgent',
-      category: 'Development',
-      timestamp: new Date().toISOString(),
-      completed: false,
-    },
-    {
-      id: 'sample-2',
-      content: 'Review Q3 financial projections spreadsheet',
-      original_text: 'Email from CFO: Please review the attached Q3 financial model by tomorrow afternoon.',
-      priority: 'High',
-      category: 'Finance',
-      timestamp: new Date(Date.now() - 3600000).toISOString(),
-      completed: false,
-    },
-    {
-      id: 'sample-3',
-      content: 'Store the provided key in a secure vault',
-      original_text: 'API credentials generated: Ensure all tokens are stored in AWS Secrets Manager.',
-      priority: 'High',
-      category: 'Security',
-      timestamp: new Date(Date.now() - 7200000).toISOString(),
-      completed: false,
-    },
-    {
-      id: 'sample-4',
-      content: 'Order replacement ergonomic mouse',
-      original_text: 'Logitech MX Master 3S order request for workstation setup.',
-      priority: 'Low',
-      category: 'Personal',
-      timestamp: new Date(Date.now() - 86400000).toISOString(),
-      completed: false,
-    },
-  ];
-
   // Load initial tasks & config
   useEffect(() => {
     invoke('get_tasks')
       .then((data) => {
         if (data && data.length > 0) {
           setTasks(data);
-        } else {
-          setTasks(SAMPLE_TASKS);
         }
       })
       .catch((err) => {
-        console.warn('Running in browser or failed to fetch tasks from Tauri, using fallback sample data:', err);
-        setTasks(SAMPLE_TASKS);
+        console.warn('Running in browser or failed to fetch tasks from Tauri:', err);
       });
 
     invoke('get_config')
@@ -137,27 +93,27 @@ export function App() {
 
       if (!document.hasFocus()) {
         try {
-          let permissionGranted = await isPermissionGranted();
-          if (!permissionGranted) {
-            const permission = await requestPermission();
-            permissionGranted = permission === 'granted';
-          }
-          if (permissionGranted) {
-            sendNotification({ title: 'CAPTURED', body: newTask.content });
-          }
+          safeSendNotification({ title: 'CAPTURED', body: newTask.content });
         } catch (e) {
           console.error("Notification error:", e);
         }
       }
     };
 
-    const unlistenCaptured = listen('new-task-captured', handleNewTask);
-    const unlistenCreated = listen('task-created', handleNewTask);
+    let cleanup = () => {};
 
-    const unlistenStatus = listen('status-update', (event) => {
-      const payload = event.payload;
-      if (payload.state === 'processing') setIsCapturing(true);
-      if (payload.state === 'done' || payload.state === 'idle') setIsCapturing(false);
+    Promise.all([
+      listen('new-task-captured', handleNewTask),
+      listen('task-created', handleNewTask),
+      listen('status-update', (event) => {
+        const payload = event.payload;
+        if (payload?.state === 'processing') setIsCapturing(true);
+        if (payload?.state === 'done' || payload?.state === 'idle') setIsCapturing(false);
+      }),
+    ]).then((unlisteners) => {
+      cleanup = () => {
+        unlisteners.forEach((u) => typeof u === 'function' && u());
+      };
     });
 
     // Global keyboard listener inside dashboard (Ctrl+K, Ctrl+,)
@@ -175,9 +131,7 @@ export function App() {
     window.addEventListener('keydown', handleKeyDown);
 
     return () => {
-      unlistenCaptured.then((u) => u());
-      unlistenCreated.then((u) => u());
-      unlistenStatus.then((u) => u());
+      cleanup();
       window.removeEventListener('keydown', handleKeyDown);
     };
   }, []);
