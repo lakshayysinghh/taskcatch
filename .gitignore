@@ -6,6 +6,7 @@ dist-ssr/
 
 # Tauri & Rust builds
 src-tauri/target/
+*.exe
 
 # Local databases & logs
 *.db

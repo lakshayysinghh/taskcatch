@@ -6,9 +6,7 @@ authors = ["TaskCatch Contributors"]
 edition = "2021"
 default-run = "taskcatch"
 
-[lib]
-name = "taskcatch_lib"
-crate-type = ["staticlib", "cdylib", "rlib"]
+
 
 [build-dependencies]
 tauri-build = { version = "2.0.0", features = [] }
@@ -31,3 +29,4 @@ log = "0.4"
 env_logger = "0.11"
 dirs = "5.0"
 regex = "1.10"
+tauri-plugin-shell = "2.3.5"

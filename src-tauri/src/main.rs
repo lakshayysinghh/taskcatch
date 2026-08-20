@@ -1,6 +1,12 @@
-// Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod desktop;
+mod hotkey;
+mod capture;
+mod ai_client;
+mod config;
+mod db;
+
 fn main() {
-    taskcatch_lib::run();
+    desktop::run();
 }
