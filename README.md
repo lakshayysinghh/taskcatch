@@ -24,11 +24,11 @@
 ### Option 1: 1-Line PowerShell Command (Recommended)
 Paste this into your PowerShell terminal:
 ```powershell
-irm https://raw.githubusercontent.com/LakshaySingh/taskcatch/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/lakshayysinghh/taskcatch/main/install.ps1 | iex
 ```
 
 ### Option 2: Standalone Installer
-Download the latest `TaskCatch_Setup.exe` from the [Releases](https://github.com/LakshaySingh/taskcatch/releases) page.
+Download the latest `TaskCatch_Setup.exe` from the [Releases](https://github.com/lakshayysinghh/taskcatch/releases) page.
 
 ---
 
@@ -60,7 +60,7 @@ TaskCatch is designed for local-first speed and zero-friction utility:
 
 1. **Clone the repository:**
    ```bash
-   git clone https://github.com/LakshaySingh/taskcatch.git
+   git clone https://github.com/lakshayysinghh/taskcatch.git
    cd taskcatch
    ```
 
