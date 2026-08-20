@@ -184,7 +184,7 @@ async fn handle_capture_flow(app: &AppHandle) {
         timestamp: Utc::now().to_rfc3339(),
         priority: parsed.priority,
         category: parsed.category,
-        deadline: None,
+        deadline: parsed.deadline,
         completed: false,
     };
 

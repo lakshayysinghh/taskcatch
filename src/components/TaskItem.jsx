@@ -1,15 +1,9 @@
 import React, { useState } from 'react';
-import { Calendar, ChevronDown, ChevronUp, Check, MoreHorizontal, Flame, Layers, Circle, Tag } from 'lucide-react';
+import { Calendar, ChevronDown, ChevronUp, Check, Flame, Layers, Circle, Tag, Clock } from 'lucide-react';
 
 export function TaskItem({ task, onToggle, onDelete, onEdit }) {
   const [isSourceOpen, setIsSourceOpen] = useState(false);
   const [showCalendarMenu, setShowCalendarMenu] = useState(false);
-
-  const getPriorityBarClass = (priority) => {
-    if (priority === 'Urgent') return 'bg-gradient-to-b from-[var(--olive-100)] to-[var(--olive-500)]';
-    if (priority === 'High') return 'bg-gradient-to-b from-[var(--olive-500)] to-[var(--olive-900)]';
-    return 'bg-[var(--border-subtle)]';
-  };
 
   const getPriorityBadge = (priority) => {
     if (priority === 'Urgent') {
@@ -60,6 +54,45 @@ export function TaskItem({ task, onToggle, onDelete, onEdit }) {
     }
   };
 
+  const formatDeadline = (isoStr) => {
+    if (!isoStr) return null;
+    try {
+      const now = new Date();
+      const target = new Date(isoStr);
+      const diffMs = target - now;
+      const isPast = diffMs < 0;
+      const absDiff = Math.abs(diffMs);
+      const diffHours = Math.floor(absDiff / (1000 * 60 * 60));
+      const diffMins = Math.floor((absDiff % (1000 * 60 * 60)) / (1000 * 60));
+
+      const timeString = target.toLocaleTimeString('en-US', {
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: true,
+      });
+
+      const isToday = now.toDateString() === target.toDateString();
+      const tomorrow = new Date(now);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      const isTomorrow = tomorrow.toDateString() === target.toDateString();
+
+      let label = '';
+      if (isPast) {
+        label = diffHours > 0 ? `Overdue by ${diffHours}h ${diffMins}m` : `Overdue by ${diffMins}m`;
+      } else if (diffHours < 24 && isToday) {
+        label = `Due in ${diffHours}h ${diffMins}m (${timeString})`;
+      } else if (isTomorrow) {
+        label = `Due Tomorrow at ${timeString}`;
+      } else {
+        label = `Due ${target.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} at ${timeString}`;
+      }
+
+      return { label, isPast, isUrgentDue: !isPast && diffHours < 6 };
+    } catch {
+      return { label: isoStr, isPast: false, isUrgentDue: false };
+    }
+  };
+
   // Google Calendar export link generator
   const exportGoogleCalendar = () => {
     const title = encodeURIComponent(task.content || 'TaskCatch Item');
@@ -99,7 +132,6 @@ END:VCALENDAR`;
         task.completed ? 'opacity-50' : ''
       }`}
     >
-
       {/* Circular Checkbox */}
       <button
         onClick={() => onToggle(task.id)}
@@ -121,7 +153,25 @@ END:VCALENDAR`;
             <Tag className="w-3 h-3" />
             {task.category || 'General'}
           </span>
-          <span className="flex items-center gap-1 text-[11px] font-medium text-[#c7c9bb]">
+          {task.deadline && (() => {
+            const deadlineInfo = formatDeadline(task.deadline);
+            if (!deadlineInfo) return null;
+            return (
+              <span
+                className={`flex items-center gap-1 text-[11px] font-semibold px-2.5 py-0.5 rounded-full border shadow-sm ${
+                  deadlineInfo.isPast
+                    ? 'bg-[rgba(255,80,80,0.15)] text-[#ff7575] border-[rgba(255,80,80,0.3)] animate-pulse'
+                    : deadlineInfo.isUrgentDue || task.priority === 'Urgent'
+                    ? 'bg-[rgba(215,233,176,0.18)] text-[var(--olive-100)] border-[rgba(168,173,122,0.45)] shadow-[0_0_12px_rgba(168,173,122,0.2)] font-mono'
+                    : 'bg-[rgba(168,173,122,0.08)] text-[#d5d6cd] border-[var(--border-subtle)] font-mono'
+                }`}
+              >
+                <Clock className={`w-3 h-3 ${deadlineInfo.isPast ? 'text-[#ff7575]' : 'text-[var(--olive-100)]'}`} />
+                {deadlineInfo.label}
+              </span>
+            );
+          })()}
+          <span className="flex items-center gap-1 text-[11px] font-medium text-[#7e8275]">
             <Calendar className="w-3 h-3 text-[var(--text-secondary)]" />
             {formatDate(task.timestamp)}
           </span>

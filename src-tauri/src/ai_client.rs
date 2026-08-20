@@ -1,3 +1,4 @@
+use chrono::{Duration as ChronoDuration, Utc};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
@@ -7,6 +8,7 @@ pub struct ParsedTaskResult {
     pub title: String,
     pub priority: String,
     pub category: String,
+    pub deadline: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -47,6 +49,7 @@ struct Message {
 /// Fallback local heuristic parser when offline or when API fails
 pub fn fallback_heuristic_parse(text: &str) -> ParsedTaskResult {
     let lower = text.to_lowercase();
+    let now = Utc::now();
 
     // Priority Heuristics
     let priority = if lower.contains("urgent") || lower.contains("asap") || lower.contains("critical") || lower.contains("!") {
@@ -72,6 +75,21 @@ pub fn fallback_heuristic_parse(text: &str) -> ParsedTaskResult {
         "General".to_string()
     };
 
+    // Deadline Heuristics
+    let deadline = if lower.contains("tonight") || lower.contains("10 pm") || lower.contains("10pm") {
+        Some((now + ChronoDuration::hours(6)).to_rfc3339())
+    } else if lower.contains("tomorrow") {
+        Some((now + ChronoDuration::days(1)).to_rfc3339())
+    } else if lower.contains("friday") {
+        Some((now + ChronoDuration::days(2)).to_rfc3339())
+    } else if lower.contains("monday") {
+        Some((now + ChronoDuration::days(4)).to_rfc3339())
+    } else if priority == "Urgent" {
+        Some((now + ChronoDuration::hours(4)).to_rfc3339())
+    } else {
+        None
+    };
+
     // Title: Take first clean sentence or up to 80 characters
     let first_line = text.lines().next().unwrap_or(text).trim();
     let title = if first_line.chars().count() > 85 {
@@ -87,6 +105,7 @@ pub fn fallback_heuristic_parse(text: &str) -> ParsedTaskResult {
         title,
         priority,
         category,
+        deadline,
     }
 }
 
@@ -103,27 +122,33 @@ pub async fn process_text(api_key: &str, text: &str) -> ParsedTaskResult {
         Err(_) => return fallback_heuristic_parse(text),
     };
 
-    let system_prompt = "You are an AI task extraction engine. Given messy highlight text, extract a clean actionable task.\n\
-        You must respond in valid JSON format with three fields:\n\
+    let now_iso = Utc::now().to_rfc3339();
+    let system_prompt = format!(
+        "You are an AI task extraction engine. Current ISO-8601 UTC timestamp: {}.\n\
+        Given messy highlight text, extract a clean actionable task.\n\
+        You must respond in valid JSON format with four fields:\n\
         - \"title\": A concise, professional action item summary (max 12 words)\n\
         - \"priority\": Exactly one of \"Urgent\", \"High\", \"Medium\", or \"Low\"\n\
-        - \"category\": Exactly one of \"Development\", \"Finance\", \"Security\", \"Personal\", or \"General\"";
+        - \"category\": Exactly one of \"Development\", \"Finance\", \"Security\", \"Personal\", or \"General\"\n\
+        - \"deadline\": An ISO-8601 UTC timestamp string (e.g. \"2026-08-20T22:00:00Z\") if a deadline, time of day (e.g. 'tonight at 10 PM', 'tomorrow at 5 PM', 'by Friday') or urgency is mentioned or implied. For Urgent tasks with no explicit time, set deadline to 4 hours from now. If no deadline applies, set to null.",
+        now_iso
+    );
 
     let user_prompt = format!("Extract task from this text:\n\"\"\"\n{}\n\"\"\"", text);
 
     let request_body = GroqRequest {
-        model: "llama3-8b-8192".to_string(),
+        model: "llama-3.3-70b-versatile".to_string(),
         messages: vec![
             GroqMessage {
                 role: "system".to_string(),
-                content: system_prompt.to_string(),
+                content: system_prompt,
             },
             GroqMessage {
                 role: "user".to_string(),
                 content: user_prompt,
             },
         ],
-        temperature: 0.2,
+        temperature: 0.1,
         response_format: Some(ResponseFormat {
             format_type: "json_object".to_string(),
         }),
