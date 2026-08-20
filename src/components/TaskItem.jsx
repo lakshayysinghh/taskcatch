@@ -153,24 +153,6 @@ END:VCALENDAR`;
             <Tag className="w-3 h-3" />
             {task.category || 'General'}
           </span>
-          {task.deadline && (() => {
-            const deadlineInfo = formatDeadline(task.deadline);
-            if (!deadlineInfo) return null;
-            return (
-              <span
-                className={`flex items-center gap-1 text-[11px] font-semibold px-2.5 py-0.5 rounded-full border shadow-sm ${
-                  deadlineInfo.isPast
-                    ? 'bg-[rgba(255,80,80,0.15)] text-[#ff7575] border-[rgba(255,80,80,0.3)] animate-pulse'
-                    : deadlineInfo.isUrgentDue || task.priority === 'Urgent'
-                    ? 'bg-[rgba(215,233,176,0.18)] text-[var(--olive-100)] border-[rgba(168,173,122,0.45)] shadow-[0_0_12px_rgba(168,173,122,0.2)] font-mono'
-                    : 'bg-[rgba(168,173,122,0.08)] text-[#d5d6cd] border-[var(--border-subtle)] font-mono'
-                }`}
-              >
-                <Clock className={`w-3 h-3 ${deadlineInfo.isPast ? 'text-[#ff7575]' : 'text-[var(--olive-100)]'}`} />
-                {deadlineInfo.label}
-              </span>
-            );
-          })()}
           <span className="flex items-center gap-1 text-[11px] font-medium text-[#7e8275]">
             <Calendar className="w-3 h-3 text-[var(--text-secondary)]" />
             {formatDate(task.timestamp)}
@@ -213,53 +195,76 @@ END:VCALENDAR`;
         )}
       </div>
 
-      {/* Right Column Action Icons & Calendar Menu */}
-      <div className="flex items-center gap-2.5 text-[var(--text-secondary)] text-[14px] self-start pt-0.5 relative">
-        {/* Calendar Menu */}
-        <div className="relative">
+      {/* Right Column: Action Buttons & Timer */}
+      <div className="flex flex-col items-end justify-between self-stretch shrink-0 gap-2 min-h-[44px]">
+        {/* Top: Action Icons & Calendar Menu */}
+        <div className="flex items-center gap-2.5 text-[var(--text-secondary)] text-[14px] pt-0.5 relative">
+          {/* Calendar Menu */}
+          <div className="relative">
+            <button
+              onClick={() => setShowCalendarMenu(!showCalendarMenu)}
+              className="hover:text-[var(--olive-300)] transition-colors p-1"
+              title="Export to Calendar"
+            >
+              <Calendar className="w-3.5 h-3.5" />
+            </button>
+
+            {showCalendarMenu && (
+              <div className="absolute right-0 top-full mt-1 w-44 bg-[var(--surface-glass-modal)] backdrop-blur-xl border border-[var(--border-subtle)] rounded-lg shadow-2xl py-1 z-30 animate-in fade-in zoom-in-95 duration-100">
+                <button
+                  onClick={exportGoogleCalendar}
+                  className="w-full text-left px-3 py-1.5 text-xs text-[#e4e4de] hover:bg-[rgba(168,173,122,0.15)] flex items-center gap-2"
+                >
+                  Google Calendar
+                </button>
+                <button
+                  onClick={downloadICS}
+                  className="w-full text-left px-3 py-1.5 text-xs text-[#e4e4de] hover:bg-[rgba(168,173,122,0.15)] flex items-center gap-2"
+                >
+                  Outlook / Apple (.ics)
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Edit Button */}
           <button
-            onClick={() => setShowCalendarMenu(!showCalendarMenu)}
+            onClick={() => onEdit(task)}
             className="hover:text-[var(--olive-300)] transition-colors p-1"
-            title="Export to Calendar"
+            title="Edit Task"
           >
-            <Calendar className="w-3.5 h-3.5" />
+            ✎
           </button>
 
-          {showCalendarMenu && (
-            <div className="absolute right-0 top-full mt-1 w-44 bg-[var(--surface-glass-modal)] backdrop-blur-xl border border-[var(--border-subtle)] rounded-lg shadow-2xl py-1 z-30 animate-in fade-in zoom-in-95 duration-100">
-              <button
-                onClick={exportGoogleCalendar}
-                className="w-full text-left px-3 py-1.5 text-xs text-[#e4e4de] hover:bg-[rgba(168,173,122,0.15)] flex items-center gap-2"
-              >
-                Google Calendar
-              </button>
-              <button
-                onClick={downloadICS}
-                className="w-full text-left px-3 py-1.5 text-xs text-[#e4e4de] hover:bg-[rgba(168,173,122,0.15)] flex items-center gap-2"
-              >
-                Outlook / Apple (.ics)
-              </button>
-            </div>
-          )}
+          {/* Delete Button */}
+          <button
+            onClick={() => onDelete(task.id)}
+            className="hover:text-[#ff7b7b] transition-colors p-1"
+            title="Delete Task"
+          >
+            ✕
+          </button>
         </div>
 
-        {/* Edit Button */}
-        <button
-          onClick={() => onEdit(task)}
-          className="hover:text-[var(--olive-300)] transition-colors p-1"
-          title="Edit Task"
-        >
-          ✎
-        </button>
-
-        {/* Delete Button */}
-        <button
-          onClick={() => onDelete(task.id)}
-          className="hover:text-[#ff7b7b] transition-colors p-1"
-          title="Delete Task"
-        >
-          ✕
-        </button>
+        {/* Bottom: Dedicated Timer Badge */}
+        {task.deadline && (() => {
+          const deadlineInfo = formatDeadline(task.deadline);
+          if (!deadlineInfo) return null;
+          return (
+            <div
+              className={`flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-0.5 rounded-full border shadow-sm ${
+                deadlineInfo.isPast
+                  ? 'bg-[rgba(255,80,80,0.15)] text-[#ff7575] border-[rgba(255,80,80,0.3)] animate-pulse'
+                  : deadlineInfo.isUrgentDue || task.priority === 'Urgent'
+                  ? 'bg-[rgba(215,233,176,0.14)] text-[var(--olive-100)] border-[rgba(168,173,122,0.4)] shadow-[0_0_12px_rgba(168,173,122,0.15)] font-mono'
+                  : 'bg-[rgba(168,173,122,0.06)] text-[#c5c8ba] border-[var(--border-subtle)] font-mono'
+              }`}
+            >
+              <Clock className={`w-3 h-3 ${deadlineInfo.isPast ? 'text-[#ff7575]' : 'text-[var(--olive-100)]'}`} />
+              <span>{deadlineInfo.label}</span>
+            </div>
+          );
+        })()}
       </div>
     </div>
   );
