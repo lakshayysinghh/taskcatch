@@ -62,6 +62,7 @@ async fn create_task_item(content: String, priority: Option<String>, category: O
         priority: priority.unwrap_or_else(|| "Medium".to_string()),
         category: category.unwrap_or_else(|| "General".to_string()),
         deadline,
+        source_app: None,
         completed: false,
     };
     db::save_task(task.clone())?;
@@ -156,8 +157,8 @@ async fn handle_capture_flow(app: &AppHandle) {
     // 1. Notify frontend extraction has started
     let _ = app.emit("status-update", StatusPayload { state: "processing".into() });
 
-    // 2. Safe OS-level selection capture (saves & restores original clipboard)
-    let original_text = match capture::get_selected_text() {
+    // 2. Safe OS-level selection capture (saves & restores original clipboard + window title)
+    let capture_res = match capture::get_selected_text() {
         Ok(t) => t,
         Err(e) => {
             eprintln!("Capture error: {}", e);
@@ -165,6 +166,8 @@ async fn handle_capture_flow(app: &AppHandle) {
             return;
         }
     };
+    let original_text = capture_res.text;
+    let source_app = capture_res.source_app;
 
     // 3. Retrieve Groq API Key
     let api_key = {
@@ -185,6 +188,7 @@ async fn handle_capture_flow(app: &AppHandle) {
         priority: parsed.priority,
         category: parsed.category,
         deadline: parsed.deadline,
+        source_app,
         completed: false,
     };
 

@@ -13,6 +13,7 @@ pub struct Task {
     #[serde(default = "default_category")]
     pub category: String, // "General", "Security", etc.
     pub deadline: Option<String>,
+    pub source_app: Option<String>,
     #[serde(default)]
     pub completed: bool,
 }
