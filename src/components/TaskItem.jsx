@@ -169,19 +169,9 @@ END:VCALENDAR`;
         </div>
 
         {/* Metadata & Origin Drawer Accordion */}
-        <div className="text-[12px] text-[var(--text-secondary)] flex items-center gap-1.5 flex-wrap">
-          <span>Captured {formatDate(task.timestamp)}</span>
-          <span>·</span>
-          {task.source_app && (
-            <>
-              <span className="inline-flex items-center gap-1 text-[11px] text-[var(--olive-300)] bg-[rgba(168,173,122,0.06)] px-2 py-0.5 rounded border border-[rgba(168,173,122,0.2)] font-mono truncate max-w-[280px]" title={task.source_app}>
-                <AppWindow className="w-3 h-3 shrink-0 text-[var(--olive-300)]" />
-                <span className="truncate">{task.source_app}</span>
-              </span>
-              <span>·</span>
-            </>
-          )}
-          {task.original_text ? (
+        <div className="text-[12px] text-[var(--text-secondary)]">
+          Captured {formatDate(task.timestamp)} &nbsp;·&nbsp;{' '}
+          {task.original_text || task.source_app ? (
             <button
               onClick={() => setIsSourceOpen(!isSourceOpen)}
               className="text-[var(--olive-300)] hover:underline border-b border-[rgba(168,173,122,0.3)] bg-transparent p-0 cursor-pointer inline-flex items-center gap-0.5"
@@ -195,7 +185,7 @@ END:VCALENDAR`;
         </div>
 
         {/* Expandable Source Text Drawer */}
-        {isSourceOpen && task.original_text && (
+        {isSourceOpen && (task.original_text || task.source_app) && (
           <div className="mt-2.5 p-3.5 rounded-lg bg-[rgba(10,11,8,0.9)] border border-[var(--border-subtle)] space-y-2.5 animate-in fade-in duration-150">
             {task.source_app && (
               <div className="flex items-center gap-2 pb-2 border-b border-[var(--border-subtle)] text-[11px] text-[#d5d6cd]">
@@ -205,14 +195,16 @@ END:VCALENDAR`;
                 </span>
               </div>
             )}
-            <div>
-              <div className="text-[10px] text-[var(--text-secondary)] font-sans uppercase tracking-wider mb-1">
-                Extracted Snippet:
+            {task.original_text && (
+              <div>
+                <div className="text-[10px] text-[var(--text-secondary)] font-sans uppercase tracking-wider mb-1">
+                  Extracted Snippet:
+                </div>
+                <div className="font-mono text-[11px] text-[#c5c9ba] leading-relaxed whitespace-pre-wrap select-text">
+                  {task.original_text}
+                </div>
               </div>
-              <div className="font-mono text-[11px] text-[#c5c9ba] leading-relaxed whitespace-pre-wrap select-text">
-                {task.original_text}
-              </div>
-            </div>
+            )}
           </div>
         )}
       </div>
