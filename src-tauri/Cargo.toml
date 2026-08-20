@@ -1,6 +1,6 @@
 [package]
 name = "taskcatch"
-version = "1.1.0"
+version = "1.1.1"
 description = "Universal AI-Powered Quick-Add Task Extractor"
 authors = ["TaskCatch Contributors"]
 edition = "2021"
