@@ -91,7 +91,7 @@ function StandupVisual() {
  * First-run guide. Shown once on the first visit to the dashboard; finishing
  * or skipping it (button, Esc or backdrop) calls onClose, which records it.
  */
-export function OnboardingGuide({ isOpen, onClose, hotkey = 'F9', isDesktop, onOpenSettings, onOpenDownload }) {
+export function OnboardingGuide({ isOpen, onClose, hotkey = 'F9', voiceHotkey = 'F8', isDesktop, onOpenSettings, onOpenDownload }) {
   const [step, setStep] = useState(0);
 
   useEffect(() => {
@@ -107,7 +107,9 @@ export function OnboardingGuide({ isOpen, onClose, hotkey = 'F9', isDesktop, onO
     {
       title: 'Capture from any app',
       body: isDesktop
-        ? `Highlight text anywhere and press ${hotkey}. TaskCatch saves it as a task with a priority, category and deadline, and leaves your clipboard exactly as it was.`
+        ? voiceHotkey
+          ? `Highlight text anywhere and press ${hotkey}, or hold ${voiceHotkey} and just say the task. Either way it gets a priority, category and deadline, and your clipboard is left as it was.`
+          : `Highlight text anywhere and press ${hotkey}. TaskCatch saves it as a task with a priority, category and deadline, and leaves your clipboard exactly as it was.`
         : `In the desktop app, highlight text anywhere and press ${hotkey} to capture it. Here in the browser you can add tasks by hand to try it out.`,
       visual: <CaptureVisual hotkey={hotkey} />,
       action: !isDesktop && { label: 'Get the desktop app', icon: Download, run: onOpenDownload },

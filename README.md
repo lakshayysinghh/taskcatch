@@ -37,6 +37,11 @@ The 1-line installer downloads the same setup `.exe` and verifies its SHA-256 ch
 ## ✨ Features
 
 - **⚡ Global capture hotkey (`F9` by default, configurable):** Highlight text in Slack, Chrome, VS Code, Discord or Word and press the hotkey. TaskCatch copies the selection and turns it into a task without you switching windows.
+- **🎙️ Voice (needs a Groq key):**
+  - *Voice tasks:* hold `F8`, say the task, release. Groq Whisper transcribes it and it is filed like any capture.
+  - *Dictation:* hold `F7` anywhere and your words are typed into the app you're in, tidied (punctuation, no "um"s) or exactly as heard.
+  - *Mic buttons* in Quick add and the Standup chat, on desktop and on the website.
+  - Language auto-detects or can be pinned. Recordings go straight to Groq and are never saved. Hotkeys are configurable or can be turned off.
 - **🗂️ Runs in the tray:** Closing the window keeps TaskCatch running in the system tray so the hotkey keeps working. Right-click the tray icon to quit.
 - **🛡️ Clipboard preservation (Windows):** Whatever was on your clipboard (text, rich text, images, copied files) is put back after a capture. If nothing was selected, the clipboard is not touched.
 - **🔍 Source window:** Each captured task records the title of the window it came from.

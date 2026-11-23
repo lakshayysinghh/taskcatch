@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { isTauri, safeInvoke as invoke, safeListen as listen, safeSendNotification } from './lib/tauri';
+import { DEFAULT_CONFIG, isTauri, safeInvoke as invoke, safeListen as listen, safeSendNotification } from './lib/tauri';
+import { VoiceIndicator } from './components/VoiceIndicator';
 import { DUE_SOON_MS, compareByDeadline, isDueWithin, isOverdue } from './lib/taskMeta';
 import { isOnboardingDone, isSoundEnabled, setOnboardingDone } from './lib/prefs';
 import { OnboardingGuide } from './components/OnboardingGuide';
@@ -32,7 +33,8 @@ function initialView() {
 export function App() {
   const [currentView, setCurrentView] = useState(initialView); // 'dashboard' | 'overview'
   const [tasks, setTasks] = useState([]);
-  const [config, setConfig] = useState({ groq_api_key: '', global_hotkey: 'F9' });
+  const [config, setConfig] = useState({ ...DEFAULT_CONFIG });
+  const [voiceStatus, setVoiceStatus] = useState(null); // { state, purpose, message } from the voice hotkeys
   const [isCapturing, setIsCapturing] = useState(false);
   const [hudTask, setHudTask] = useState(null);
 
@@ -125,8 +127,45 @@ export function App() {
     }
   };
 
-  // Live background captures and keyboard shortcuts
+  // Short tones for hold-to-talk: a rising blip when listening starts, a
+  // falling one when it ends. Usually the window is hidden, so sound is the cue.
+  const playCue = (kind) => {
+    if (!isSoundEnabled()) return;
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      const [from, to] = kind === 'start' ? [520, 880] : kind === 'stop' ? [880, 520] : [330, 220];
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(from, ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(to, ctx.currentTime + 0.09);
+      gain.gain.setValueAtTime(0.07, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.18);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.18);
+    } catch {
+      // Audio unavailable
+    }
+  };
+
+  // Live background captures, voice hotkeys and keyboard shortcuts
   useEffect(() => {
+    const handleVoiceStatus = (event) => {
+      const status = event.payload;
+      if (!status) return;
+      if (status.state === 'listening') playCue('start');
+      if (status.state === 'transcribing') playCue('stop');
+      if (status.state === 'error') {
+        playCue('error');
+        const message = status.message || 'Voice input failed.';
+        reportError(status.purpose === 'dictation' ? 'Dictation failed' : 'Voice capture failed', message);
+        if (!document.hasFocus()) safeSendNotification({ title: 'Voice input failed', body: message });
+      }
+      setVoiceStatus(status.state === 'listening' || status.state === 'transcribing' ? status : null);
+    };
+
     const handleNewTask = (event) => {
       const newTask = event.payload;
       setTasks((prev) => [newTask, ...prev.filter((t) => t.id !== newTask.id)]);
@@ -141,6 +180,7 @@ export function App() {
     let cleanup = () => {};
     Promise.all([
       listen('new-task-captured', handleNewTask),
+      listen('voice-status', handleVoiceStatus),
       listen('status-update', (event) => {
         const payload = event.payload;
         if (payload?.state === 'processing') setIsCapturing(true);
@@ -320,6 +360,7 @@ export function App() {
           filteredTasks={filteredTasks}
           counts={counts}
           hotkey={hotkey}
+          voiceHotkey={isTauri ? config.voice_hotkey : ''}
           isCapturing={isCapturing}
           canCapture={isTauri}
           searchQuery={searchQuery}
@@ -348,12 +389,15 @@ export function App() {
         isOpen={isGuideOpen}
         onClose={closeGuide}
         hotkey={hotkey}
+        voiceHotkey={config.voice_hotkey}
         isDesktop={isTauri}
         onOpenSettings={() => setIsSettingsOpen(true)}
         onOpenDownload={() => setIsDownloadOpen(true)}
       />
 
-      {hudTask && (
+      <VoiceIndicator status={voiceStatus} voiceHotkey={config.voice_hotkey} dictationHotkey={config.dictation_hotkey} />
+
+      {hudTask && !voiceStatus && (
         <FloatingHUD
           task={hudTask}
           onUndo={(id) => {

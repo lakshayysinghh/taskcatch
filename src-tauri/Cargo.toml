@@ -18,7 +18,8 @@ tauri-plugin-notification = "2.0.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 chrono = { version = "0.4", features = ["serde"] }
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "multipart"] }
+cpal = "0.18"
 tokio = { version = "1.38", features = ["full"] }
 arboard = "3.4"
 enigo = { version = "0.2.1" }

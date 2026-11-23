@@ -1,7 +1,8 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Calendar, CornerDownLeft, Sparkles } from 'lucide-react';
 import { parseTaskText } from '../lib/parseTask';
 import { Modal } from './ui/Modal';
+import { MicButton } from './ui/MicButton';
 import { Button } from './ui/Button';
 import { Kbd } from './ui/Kbd';
 import { PriorityBadge, CategoryTag } from './ui/Badges';
@@ -24,11 +25,14 @@ const EXAMPLES = ['urgent', 'p1', '#dev', 'invoice', 'tonight', 'tomorrow 5pm', 
 export function ManualCaptureModal({ isOpen, onClose, onSaveTask }) {
   const [text, setText] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+  const [voiceError, setVoiceError] = useState(null);
+  const textareaRef = useRef(null);
 
   useEffect(() => {
     if (!isOpen) {
       setText('');
       setIsSaving(false);
+      setVoiceError(null);
     }
   }, [isOpen]);
 
@@ -74,7 +78,7 @@ export function ManualCaptureModal({ isOpen, onClose, onSaveTask }) {
       onClose={onClose}
       icon={Sparkles}
       title="Quick add"
-      description="Type a task in plain words. Priority, category and deadline are picked up as you type."
+      description="Type or say a task in plain words. Priority, category and deadline are picked up as you go."
       footer={
         <>
           <span className="hidden items-center gap-4 whitespace-nowrap text-[12px] text-ink-3 sm:flex">
@@ -98,16 +102,36 @@ export function ManualCaptureModal({ isOpen, onClose, onSaveTask }) {
       }
     >
       <form onSubmit={handleSubmit} className="space-y-4">
-        <textarea
-          data-autofocus
-          rows={3}
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder="e.g. Deploy auth hotfix tomorrow 5pm #dev urgent"
-          aria-label="Task text"
-          className={`${inputClass} resize-none py-3 text-[15px] leading-relaxed`}
-        />
+        <div>
+          <div className="relative">
+            <textarea
+              ref={textareaRef}
+              data-autofocus
+              rows={3}
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="e.g. Deploy auth hotfix tomorrow 5pm #dev urgent"
+              aria-label="Task text"
+              className={`${inputClass} resize-none py-3 pr-14 text-[15px] leading-relaxed`}
+            />
+            <MicButton
+              size="sm"
+              className="absolute bottom-2 right-2"
+              onTranscript={(spoken) => {
+                setVoiceError(null);
+                setText((t) => (t.trim() ? `${t.trim()} ${spoken}` : spoken));
+                textareaRef.current?.focus();
+              }}
+              onError={setVoiceError}
+            />
+          </div>
+          {voiceError && (
+            <p role="alert" className="mt-1.5 text-[12px] text-danger">
+              {voiceError}
+            </p>
+          )}
+        </div>
 
         <div className="rounded-xl border border-line bg-black/20 p-3.5">
           <div className="mb-2.5 text-[11.5px] font-medium uppercase tracking-[0.08em] text-ink-3">Preview</div>

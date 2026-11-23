@@ -48,17 +48,30 @@ function saveStoredTasks(tasks) {
   }
 }
 
+/** Same fields and defaults as AppConfig in src-tauri/src/config.rs. */
+export const DEFAULT_CONFIG = Object.freeze({
+  groq_api_key: '',
+  global_hotkey: 'F9',
+  voice_hotkey: 'F8',
+  dictation_hotkey: 'F7',
+  voice_language: '',
+  dictation_cleanup: true,
+});
+
 function getStoredConfig() {
-  if (typeof window === 'undefined') return { groq_api_key: '', global_hotkey: 'F9' };
-  const stored = localStorage.getItem('taskcatch_web_config');
-  if (stored) {
-    try {
-      return JSON.parse(stored);
-    } catch {
-      return { groq_api_key: '', global_hotkey: 'F9' };
-    }
+  if (typeof window === 'undefined') return { ...DEFAULT_CONFIG };
+  let stored = null;
+  try {
+    stored = localStorage.getItem('taskcatch_web_config');
+  } catch {
+    return { ...DEFAULT_CONFIG };
   }
-  return { groq_api_key: '', global_hotkey: 'F9' };
+  if (!stored) return { ...DEFAULT_CONFIG };
+  try {
+    return { ...DEFAULT_CONFIG, ...JSON.parse(stored) };
+  } catch {
+    return { ...DEFAULT_CONFIG };
+  }
 }
 
 function saveStoredConfig(cfg) {

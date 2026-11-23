@@ -5,6 +5,7 @@ import { safeInvoke as invoke } from '../lib/tauri';
 import { isDueToday, isOverdue } from '../lib/taskMeta';
 import { Modal } from './ui/Modal';
 import { LogoMark } from './ui/LogoMark';
+import { MicButton } from './ui/MicButton';
 
 /** One line per applied change, e.g. "Deploy hotfix: due Thu, Nov 26, 9:00 AM · priority Urgent". */
 function describeMutation(m) {
@@ -221,9 +222,16 @@ Ask me what to focus on, or to reschedule and reprioritise tasks.`,
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
             disabled={isTyping}
-            placeholder="Ask your assistant — e.g. “push overdue to tomorrow” or “what's my lowest priority?”"
+            placeholder="Ask your assistant — e.g. “push overdue to tomorrow”"
             aria-label="Message the standup assistant"
-            className="h-12 w-full rounded-xl border border-line-strong bg-surface pl-4 pr-14 text-[14px] text-ink outline-none transition placeholder:text-ink-3 focus:border-olive-300/40 focus:ring-4 focus:ring-olive-300/10 disabled:opacity-60"
+            className="h-12 w-full rounded-xl border border-line-strong bg-surface pl-4 pr-28 text-[14px] text-ink outline-none transition placeholder:text-ink-3 focus:border-olive-300/40 focus:ring-4 focus:ring-olive-300/10 disabled:opacity-60"
+          />
+          <MicButton
+            size="sm"
+            disabled={isTyping}
+            className="absolute right-12 top-1/2 -translate-y-1/2"
+            onTranscript={(spoken) => setInputValue((v) => (v.trim() ? `${v.trim()} ${spoken}` : spoken))}
+            onError={(message) => addBotMessage(message, { isError: true })}
           />
           <button
             type="submit"
