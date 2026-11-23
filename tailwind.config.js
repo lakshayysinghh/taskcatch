@@ -54,9 +54,14 @@ export default {
           '0%, 100%': { transform: 'translate3d(-50%, 0, 0) scale(1)' },
           '50%': { transform: 'translate3d(-48%, 3%, 0) scale(1.06)' },
         },
+        wave: {
+          '0%, 100%': { transform: 'scaleY(0.3)' },
+          '50%': { transform: 'scaleY(1)' },
+        },
       },
       animation: {
         drift: 'drift 28s ease-in-out infinite',
+        wave: 'wave 1.1s ease-in-out infinite',
       },
     },
   },
