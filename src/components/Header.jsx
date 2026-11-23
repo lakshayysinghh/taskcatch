@@ -1,86 +1,71 @@
 import React from 'react';
 import { safeOpen as open } from '../lib/tauri';
-import { Zap, Download, Settings, ArrowLeft, ArrowRight, Github } from 'lucide-react';
+import { Download, Settings, Github } from 'lucide-react';
 import { version } from '../../package.json';
+import { Button } from './ui/Button';
+import { LogoMark } from './ui/LogoMark';
 
-export function Header({ currentView, onToggleView, onOpenDownload, onOpenSettings }) {
+const GITHUB_URL = 'https://github.com/lakshayysinghh/taskcatch';
+
+export function Header({ currentView, onNavigate, onOpenDownload, onOpenSettings }) {
+  const tab = (view, label) => (
+    <button
+      type="button"
+      onClick={() => onNavigate(view)}
+      aria-current={currentView === view ? 'page' : undefined}
+      className={`relative h-8 rounded-lg px-3 text-[13px] font-medium transition ${
+        currentView === view ? 'bg-white/[0.07] text-ink' : 'text-ink-2 hover:text-ink'
+      }`}
+    >
+      {label}
+    </button>
+  );
+
   return (
-    <header className="fixed top-0 left-0 right-0 z-40 w-full h-16 backdrop-blur-[24px] bg-[rgba(10,11,8,0.85)] border-b border-[rgba(168,173,122,0.12)] px-6">
-      <div className="max-w-[1100px] h-full mx-auto flex items-center justify-between">
-        {/* Brand Group */}
+    <header className="sticky top-0 z-40 border-b border-line bg-[#0a0b09]/75 backdrop-blur-xl backdrop-saturate-150">
+      <div className="mx-auto flex h-14 max-w-[1120px] items-center justify-between gap-4 px-5 sm:px-8">
         <button
-          onClick={onToggleView}
-          className="flex items-center gap-3 text-left group transition-all"
-          title={currentView === 'dashboard' ? 'View Product Overview' : 'Open Dashboard'}
+          type="button"
+          onClick={() => onNavigate('overview')}
+          className="group flex items-center gap-2.5 rounded-lg"
+          aria-label="TaskCatch home"
         >
-          <div className="w-[36px] h-[36px] rounded-[10px] border border-[rgba(168,173,122,0.3)] bg-[rgba(10,11,8,0.5)] flex items-center justify-center shadow-[0_0_20px_rgba(168,173,122,0.15)] transition-all group-hover:shadow-[0_0_25px_rgba(168,173,122,0.25)] group-hover:scale-105">
-            <div className="w-[20px] h-[20px] rounded-md border border-dashed border-[var(--olive-500)] flex items-center justify-center">
-              <Zap className="w-2.5 h-2.5 text-[var(--olive-300)] fill-[var(--olive-300)]" />
-            </div>
-          </div>
-          <div>
-            <div className="flex items-center gap-2.5">
-              <span className="text-[18px] font-bold text-[#f2f2ec] tracking-tight group-hover:text-[var(--olive-100)] transition-colors">
-                taskcatch
-              </span>
-              <span className="text-[10px] font-mono font-semibold text-[var(--olive-300)] border border-[rgba(168,173,122,0.3)] px-1.5 py-0.5 rounded-md bg-[rgba(168,173,122,0.08)] uppercase tracking-widest mt-0.5">
-                v{version}
-              </span>
-            </div>
-            <div className="text-[12px] text-[var(--text-secondary)] -mt-0.5">
-              universal quick-add extractor
-            </div>
-          </div>
+          <LogoMark size={28} className="transition-transform duration-300 group-hover:rotate-[-4deg]" />
+          <span className="text-[15px] font-semibold tracking-[-0.02em] text-ink">TaskCatch</span>
+          <span className="hidden rounded-md border border-line-strong px-1.5 py-[1px] font-mono text-[10.5px] text-ink-3 sm:inline">
+            v{version}
+          </span>
         </button>
 
-        {/* Actions Group */}
-        <div className="flex items-center gap-2.5">
+        <nav className="hidden items-center gap-1 rounded-[10px] border border-line bg-white/[0.02] p-[3px] md:flex" aria-label="Main">
+          {tab('overview', 'Overview')}
+          {tab('dashboard', 'Dashboard')}
+        </nav>
+
+        <div className="flex items-center gap-1.5">
           {currentView === 'overview' ? (
             <>
-              <a
-                href="#"
-                onClick={(e) => {
-                  e.preventDefault();
-                  open('https://github.com/lakshayysinghh/taskcatch');
-                }}
-                className="font-sans text-[13px] font-medium px-4 py-2 rounded-[10px] border border-[var(--border-subtle)] bg-[rgba(168,173,122,0.04)] hover:bg-[rgba(168,173,122,0.1)] text-[#d5d6cd] transition-all flex items-center gap-1.5"
-              >
-                <Github className="w-4 h-4" />
+              <Button variant="ghost" size="sm" onClick={() => open(GITHUB_URL)} className="hidden sm:inline-flex">
+                <Github className="h-4 w-4" />
                 GitHub
-              </a>
-              <button
-                onClick={onOpenDownload}
-                className="font-sans text-[13px] font-bold px-4 py-2 rounded-[10px] text-[#0b0c0a] shadow-[0_0_15px_rgba(168,173,122,0.2)] hover:opacity-95 transition-all flex items-center gap-1.5"
-                style={{ background: 'linear-gradient(135deg, var(--olive-100), var(--olive-500))' }}
-              >
-                <Download className="w-4 h-4" />
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => onNavigate('dashboard')} className="md:hidden">
+                Dashboard
+              </Button>
+              <Button variant="primary" size="sm" onClick={onOpenDownload}>
+                <Download className="h-4 w-4" />
                 Download
-              </button>
-              <button
-                onClick={onToggleView}
-                className="font-sans text-[13px] font-medium px-4 py-2 rounded-[10px] border border-[var(--border-subtle)] bg-[rgba(10,11,8,0.5)] hover:bg-[rgba(29,31,24,0.7)] text-[#f2f2ec] transition-all flex items-center gap-1.5"
-              >
-                Open Dashboard
-                <ArrowRight className="w-4 h-4" />
-              </button>
+              </Button>
             </>
           ) : (
             <>
-              <button
-                onClick={onOpenDownload}
-                className="font-sans text-[13px] font-medium px-4 py-2 rounded-[10px] border border-[var(--border-subtle)] bg-[rgba(168,173,122,0.05)] hover:bg-[rgba(168,173,122,0.12)] text-[#f2f2ec] transition-all flex items-center gap-2"
-              >
-                <Download className="w-4 h-4 text-[var(--olive-300)]" />
-                download app
-              </button>
-
-              <button
-                onClick={onOpenSettings}
-                className="p-2.5 rounded-[10px] border border-[var(--border-subtle)] bg-[rgba(10,11,8,0.5)] hover:bg-[rgba(29,31,24,0.7)] text-[var(--text-secondary)] hover:text-[#f2f2ec] transition-colors"
-                title="Settings (Ctrl+,)"
-              >
-                <Settings className="w-4 h-4" />
-              </button>
+              <Button variant="ghost" size="sm" onClick={onOpenDownload}>
+                <Download className="h-4 w-4" />
+                <span className="hidden sm:inline">Download app</span>
+              </Button>
+              <Button variant="ghost" size="icon" onClick={onOpenSettings} aria-label="Settings" title="Settings (Ctrl+,)">
+                <Settings className="h-[17px] w-[17px]" />
+              </Button>
             </>
           )}
         </div>

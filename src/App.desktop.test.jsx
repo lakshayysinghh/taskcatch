@@ -9,7 +9,7 @@ vi.mock('./lib/tauri', async (importOriginal) => ({ ...(await importOriginal()),
 describe('App (desktop)', () => {
   it('opens straight to the task dashboard', async () => {
     render(<App />);
-    expect(screen.getByText('quick capture')).toBeTruthy();
+    expect(screen.getByText('Quick capture')).toBeTruthy();
     expect(screen.queryByText('Launch Live Dashboard')).toBeNull();
     expect(await screen.findByText('Deploy hotfix for authentication token expiry')).toBeTruthy();
   });

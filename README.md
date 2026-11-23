@@ -44,7 +44,7 @@ The 1-line installer downloads the same setup `.exe` and verifies its SHA-256 ch
 - **☀️ Morning Standup Bot (needs a Groq key):** Ask about your tasks and have them rescheduled or reprioritised in chat. Every change is validated before it is saved.
 - **⌨️ Quick add (`Ctrl + K`):** Type a task in plain words. An offline keyword parser picks up priority (`urgent`, `p1`), category (`#dev`, `invoice`) and deadline (`tonight`, `tomorrow 5pm`, `by friday`) with a live preview.
 - **📅 Calendar export:** Open a task in Google Calendar or download it as an `.ics` file.
-- **🎨 Obsidian & Olive Glow theme:** Mouse-parallax ambient background and glassmorphism.
+- **🎨 Olive Noir design:** A calm dark interface with self-hosted Geist and Instrument Serif typefaces, keyboard-first dialogs (Esc to close, `/` to search, `Ctrl+K` quick add) and no external font or script requests.
 
 ---
 

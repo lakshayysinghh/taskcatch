@@ -1,6 +1,10 @@
-import React, { useState, useEffect } from 'react';
-import { X, Flame, Tag, Calendar, FileText, Check, Flag } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { Check, PencilLine, Plus, X } from 'lucide-react';
 import { PRIORITIES, CATEGORIES, toLocalInputValue, fromLocalInputValue } from '../lib/taskMeta';
+import { Modal } from './ui/Modal';
+import { Button } from './ui/Button';
+import { Label, Select, inputClass } from './ui/Field';
+import { priorityDotClass } from './ui/Badges';
 
 export function TaskDetailModal({ isOpen, onClose, task, onSave }) {
   const [content, setContent] = useState('');
@@ -27,13 +31,12 @@ export function TaskDetailModal({ isOpen, onClose, task, onSave }) {
     setIsSaving(false);
   }, [task, isOpen]);
 
-  if (!isOpen) return null;
-
   // Keep a task's older category selectable so editing other fields doesn't change it.
   const categoryOptions = CATEGORIES.includes(category) ? CATEGORIES : [...CATEGORIES, category];
+  const isEdit = Boolean(task?.id);
 
   const handleSubmit = async (e) => {
-    e.preventDefault();
+    e?.preventDefault();
     if (!content.trim() || isSaving) return;
 
     setIsSaving(true);
@@ -52,119 +55,112 @@ export function TaskDetailModal({ isOpen, onClose, task, onSave }) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-150">
-      <div className="bg-[var(--surface-glass-modal)] border border-[var(--border-subtle)] rounded-2xl w-full max-w-lg shadow-2xl relative text-[#e4e6db] overflow-hidden">
-        {/* Header */}
-        <div className="flex items-center justify-between p-6 pb-4 border-b border-[var(--border-subtle)]">
-          <h2 className="text-lg font-bold text-[#f2f2ec]">
-            {task?.id ? 'Edit task' : 'Create task'}
-          </h2>
-          <button
-            onClick={onClose}
-            className="text-[var(--text-secondary)] hover:text-[#f2f2ec] p-1.5 rounded-lg hover:bg-[rgba(168,173,122,0.1)] transition-colors"
-          >
-            <X className="w-4 h-4" />
-          </button>
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      icon={isEdit ? PencilLine : Plus}
+      title={isEdit ? 'Edit task' : 'New task'}
+      description={isEdit ? 'Changes are saved to your task list.' : 'Add a task by hand.'}
+      footer={
+        <div className="ml-auto flex gap-2">
+          <Button variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button variant="primary" type="submit" form="task-detail-form" disabled={isSaving}>
+            <Check className="h-4 w-4" strokeWidth={2.4} />
+            {isSaving ? 'Saving...' : 'Save task'}
+          </Button>
+        </div>
+      }
+    >
+      <form id="task-detail-form" onSubmit={handleSubmit} className="space-y-5">
+        <div>
+          <Label htmlFor="task-title">Title</Label>
+          <input
+            id="task-title"
+            data-autofocus
+            type="text"
+            value={content}
+            onChange={(e) => setContent(e.target.value)}
+            placeholder="e.g. Deploy hotfix for auth service"
+            required
+            className={`${inputClass} h-10`}
+          />
         </div>
 
-        {/* Form Body */}
-        <form onSubmit={handleSubmit} className="p-6 space-y-5">
-          {/* Title / Description */}
-          <div>
-            <label className="block text-[11px] font-bold text-[#8c9182] uppercase tracking-wider mb-2">Task Title</label>
-            <input
-              type="text"
-              value={content}
-              onChange={(e) => setContent(e.target.value)}
-              placeholder="e.g. Deploy hotfix for auth service"
-              required
-              className="w-full bg-[rgba(10,11,8,0.5)] border border-[var(--border-subtle)] focus:border-[var(--olive-300)] text-sm text-[#f2f2ec] rounded-xl p-3 outline-none placeholder:text-[#52574d] shadow-inner"
-            />
-          </div>
-
-          {/* Priority & Category Grid */}
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="flex items-center gap-1.5 text-[11px] font-bold text-[#8c9182] uppercase tracking-wider mb-2">
-                <Flag className="w-3.5 h-3.5" /> Priority
-              </label>
-              <select
-                value={priority}
-                onChange={(e) => setPriority(e.target.value)}
-                className="w-full bg-[rgba(10,11,8,0.5)] border border-[var(--border-subtle)] focus:border-[var(--olive-300)] text-sm text-[#f2f2ec] rounded-xl p-3 outline-none appearance-none cursor-pointer shadow-inner"
-                style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'16\' height=\'16\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'%238c9182\' stroke-width=\'2\' stroke-linecap=\'round\' stroke-linejoin=\'round\'%3E%3Cpath d=\'M6 9l6 6 6-6\'/%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 12px center' }}
+        <fieldset>
+          <legend className="mb-1.5 text-[12.5px] font-medium text-ink-2">Priority</legend>
+          <div className="grid grid-cols-4 gap-1.5" role="radiogroup" aria-label="Priority">
+            {PRIORITIES.map((p) => (
+              <button
+                key={p}
+                type="button"
+                role="radio"
+                aria-checked={priority === p}
+                onClick={() => setPriority(p)}
+                className={`flex h-9 items-center justify-center gap-1.5 rounded-[10px] border text-[12.5px] font-medium transition ${
+                  priority === p
+                    ? 'border-olive-300/40 bg-olive-300/10 text-ink'
+                    : 'border-line-strong bg-black/20 text-ink-2 hover:text-ink'
+                }`}
               >
-                {PRIORITIES.map((p) => (
-                  <option key={p} value={p}>{p}</option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="flex items-center gap-1.5 text-[11px] font-bold text-[#8c9182] uppercase tracking-wider mb-2">
-                <Tag className="w-3.5 h-3.5" /> Category
-              </label>
-              <select
-                value={category}
-                onChange={(e) => setCategory(e.target.value)}
-                className="w-full bg-[rgba(10,11,8,0.5)] border border-[var(--border-subtle)] focus:border-[var(--olive-300)] text-sm text-[#f2f2ec] rounded-xl p-3 outline-none appearance-none cursor-pointer shadow-inner"
-                style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'16\' height=\'16\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'%238c9182\' stroke-width=\'2\' stroke-linecap=\'round\' stroke-linejoin=\'round\'%3E%3Cpath d=\'M6 9l6 6 6-6\'/%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 12px center' }}
-              >
-                {categoryOptions.map((c) => (
-                  <option key={c} value={c}>{c}</option>
-                ))}
-              </select>
-            </div>
+                <span className={`h-1.5 w-1.5 rounded-full ${priorityDotClass(p)}`} />
+                {p}
+              </button>
+            ))}
           </div>
+        </fieldset>
 
-          {/* Deadline */}
+        <div className="grid gap-4 sm:grid-cols-2">
           <div>
-            <label className="flex items-center gap-1.5 text-[11px] font-bold text-[#8c9182] uppercase tracking-wider mb-2">
-              <Calendar className="w-3.5 h-3.5" /> Deadline
-            </label>
+            <Label htmlFor="task-category">Category</Label>
+            <Select id="task-category" value={category} onChange={(e) => setCategory(e.target.value)}>
+              {categoryOptions.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </Select>
+          </div>
+          <div>
+            <div className="mb-1.5 flex items-baseline justify-between">
+              <label htmlFor="task-deadline" className="text-[12.5px] font-medium text-ink-2">
+                Deadline
+              </label>
+              {deadline && (
+                <button
+                  type="button"
+                  onClick={() => setDeadline('')}
+                  className="inline-flex items-center gap-0.5 text-[11.5px] text-ink-3 transition hover:text-ink"
+                >
+                  <X className="h-3 w-3" /> Clear
+                </button>
+              )}
+            </div>
             <input
+              id="task-deadline"
               type="datetime-local"
               value={deadline}
               onChange={(e) => setDeadline(e.target.value)}
-              className="w-full bg-[rgba(10,11,8,0.5)] border border-[var(--border-subtle)] focus:border-[var(--olive-300)] text-sm text-[#f2f2ec] rounded-xl p-3 outline-none placeholder:text-[#52574d] shadow-inner"
-              style={{ colorScheme: 'dark' }}
+              className={`${inputClass} h-10 [color-scheme:dark]`}
             />
           </div>
+        </div>
 
-          {/* Raw Source Context Notes */}
-          <div>
-            <label className="flex items-center gap-1.5 text-[11px] font-bold text-[#8c9182] uppercase tracking-wider mb-2">
-              <FileText className="w-3.5 h-3.5" /> Source Context (Optional)
-            </label>
-            <textarea
-              rows={3}
-              value={originalText}
-              onChange={(e) => setOriginalText(e.target.value)}
-              placeholder="Raw text from email, Slack, etc."
-              className="w-full bg-[rgba(10,11,8,0.5)] border border-[var(--border-subtle)] focus:border-[var(--olive-300)] font-mono text-sm text-[#8c9182] rounded-xl p-3 outline-none resize-none placeholder:text-[#52574d] shadow-inner"
-            />
-          </div>
-
-          {/* Footer Submit */}
-          <div className="flex items-center justify-end gap-4 pt-4 border-t border-[var(--border-subtle)]">
-            <button
-              type="button"
-              onClick={onClose}
-              className="text-[13px] font-medium text-[#8c9182] hover:text-[#f2f2ec] transition-colors bg-transparent border-none"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={isSaving}
-              className="px-5 py-2.5 text-[13px] font-semibold rounded-lg text-[#0b0c0a] shadow-sm hover:opacity-95 transition-all flex items-center gap-2 bg-[var(--olive-300)] disabled:opacity-50"
-            >
-              <Check className="w-4 h-4 stroke-[2.5]" />
-              {isSaving ? 'Saving...' : 'Save task'}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
+        <div>
+          <Label htmlFor="task-source" hint="Optional">
+            Source text
+          </Label>
+          <textarea
+            id="task-source"
+            rows={3}
+            value={originalText}
+            onChange={(e) => setOriginalText(e.target.value)}
+            placeholder="Raw text from email, Slack, etc."
+            className={`${inputClass} resize-none py-2.5 font-mono text-[12.5px] leading-relaxed`}
+          />
+        </div>
+      </form>
+    </Modal>
   );
 }
