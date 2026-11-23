@@ -1,23 +1,27 @@
 import React, { useState, useEffect } from 'react';
 import { safeOpen as open, safeInvoke as invoke } from '../lib/tauri';
-import { X, Key, Bot, Sliders, CheckCircle2, AlertCircle, Loader2, Volume2, ShieldCheck } from 'lucide-react';
+import { X, Key, Bot, Sliders, CheckCircle2, AlertCircle, Loader2, Volume2 } from 'lucide-react';
+import { isSoundEnabled, setSoundEnabled as saveSoundPreference } from '../lib/prefs';
+
+// The model the backend actually calls (MODEL in src-tauri/src/ai_client.rs).
+const MODEL_LABEL = 'Llama 3.3 70B (llama-3.3-70b-versatile) on Groq';
 
 export function SettingsModal({ isOpen, onClose, onConfigSaved }) {
-  const [activeTab, setActiveTab] = useState('ai'); // 'ai' | 'integrations' | 'preferences'
+  const [activeTab, setActiveTab] = useState('ai'); // 'ai' | 'preferences'
   const [apiKey, setApiKey] = useState('');
-  const [model, setModel] = useState('llama3-8b-8192');
   const [hotkey, setHotkey] = useState('F9');
-  const [todoistKey, setTodoistKey] = useState('');
   const [soundEnabled, setSoundEnabled] = useState(true);
-  const [eodHour, setEodHour] = useState('18:00');
 
   // Test state
   const [isTesting, setIsTesting] = useState(false);
   const [testResult, setTestResult] = useState(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState(null);
 
   useEffect(() => {
     if (isOpen) {
+      setSoundEnabled(isSoundEnabled());
+      setSaveError(null);
       invoke('get_config')
         .then((cfg) => {
           if (cfg) {
@@ -62,6 +66,7 @@ export function SettingsModal({ isOpen, onClose, onConfigSaved }) {
   const handleSave = async (e) => {
     e.preventDefault();
     setIsSaving(true);
+    setSaveError(null);
 
     const newConfig = {
       groq_api_key: apiKey.trim(),
@@ -70,12 +75,13 @@ export function SettingsModal({ isOpen, onClose, onConfigSaved }) {
     try {
       // The backend registers the hotkey first and only saves if that works.
       await invoke('update_config', { newConfig });
+      saveSoundPreference(soundEnabled);
 
       if (onConfigSaved) onConfigSaved(newConfig);
       onClose();
     } catch (err) {
       console.error('Failed to update config:', err);
-      alert(typeof err === 'string' ? err : 'Failed to register shortcut.');
+      setSaveError(typeof err === 'string' ? err : err?.message || 'Could not save settings.');
     } finally {
       setIsSaving(false);
     }
@@ -87,8 +93,8 @@ export function SettingsModal({ isOpen, onClose, onConfigSaved }) {
         {/* Header */}
         <div className="flex items-center justify-between p-5 border-b border-[var(--border-subtle)]">
           <div>
-            <h2 className="text-base font-bold text-[#f2f2ec]">Preferences & Integrations</h2>
-            <p className="text-xs text-[var(--text-secondary)]">Manage your AI backends, hotkeys, and sync options</p>
+            <h2 className="text-base font-bold text-[#f2f2ec]">Settings</h2>
+            <p className="text-xs text-[var(--text-secondary)]">Groq API key, capture hotkey and sound</p>
           </div>
           <button
             onClick={onClose}
@@ -110,20 +116,7 @@ export function SettingsModal({ isOpen, onClose, onConfigSaved }) {
             }`}
           >
             <Bot className="w-3.5 h-3.5" />
-            AI Models & Keys
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setActiveTab('integrations')}
-            className={`py-3 text-xs font-medium border-b-2 transition-colors flex items-center gap-1.5 ${
-              activeTab === 'integrations'
-                ? 'border-[var(--olive-300)] text-[var(--olive-100)]'
-                : 'border-transparent text-[var(--text-secondary)] hover:text-[#f2f2ec]'
-            }`}
-          >
-            <ShieldCheck className="w-3.5 h-3.5" />
-            Integrations
+            AI
           </button>
 
           <button
@@ -136,7 +129,7 @@ export function SettingsModal({ isOpen, onClose, onConfigSaved }) {
             }`}
           >
             <Sliders className="w-3.5 h-3.5" />
-            Workday & Hotkeys
+            Hotkey & Sound
           </button>
         </div>
 
@@ -198,40 +191,16 @@ export function SettingsModal({ isOpen, onClose, onConfigSaved }) {
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-[#c8cebe] mb-1.5">AI Inference Model</label>
-                <select
-                  value={model}
-                  onChange={(e) => setModel(e.target.value)}
-                  className="w-full bg-[rgba(10,11,8,0.9)] border border-[var(--border-subtle)] focus:border-[var(--olive-300)] text-xs text-[#f2f2ec] rounded-xl px-3 py-2 outline-none"
-                >
-                  <option value="llama3-8b-8192">Meta Llama 3 8B (Fastest — 800+ tokens/sec)</option>
-                  <option value="llama-3.3-70b-versatile">Meta Llama 3.3 70B (Complex reasoning)</option>
-                  <option value="mixtral-8x7b-32768">Mixtral 8x7B (Long context extraction)</option>
-                </select>
-              </div>
-            </div>
-          )}
-
-          {/* Tab 2: Integrations */}
-          {activeTab === 'integrations' && (
-            <div className="space-y-4">
-              <div>
-                <label className="block text-xs font-semibold text-[#c8cebe] mb-1.5">Todoist API Token</label>
-                <input
-                  type="password"
-                  value={todoistKey}
-                  onChange={(e) => setTodoistKey(e.target.value)}
-                  placeholder="Paste Todoist API token to sync..."
-                  className="w-full bg-[rgba(10,11,8,0.9)] border border-[var(--border-subtle)] focus:border-[var(--olive-300)] text-xs text-[#f2f2ec] rounded-xl px-3 py-2 outline-none font-mono placeholder:text-[var(--text-placeholder)]"
-                />
-                <p className="text-[11px] text-[var(--text-secondary)] mt-1">
-                  Enables 2-way sync with your mobile and web Todoist tasks.
+                <div className="block text-xs font-semibold text-[#c8cebe] mb-1.5">AI Model</div>
+                <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
+                  {MODEL_LABEL}. Without a key, tasks are parsed offline with keyword rules instead.
+                  Your key is stored on this PC in plain text.
                 </p>
               </div>
             </div>
           )}
 
-          {/* Tab 3: Workday & Hotkeys */}
+          {/* Tab 2: Hotkey & Sound */}
           {activeTab === 'preferences' && (
             <div className="space-y-4">
               <div>
@@ -258,22 +227,8 @@ export function SettingsModal({ isOpen, onClose, onConfigSaved }) {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3 pt-2">
-                <div>
-                  <label className="block text-xs font-semibold text-[#c8cebe] mb-1.5">End-of-Day Hour</label>
-                  <select
-                    value={eodHour}
-                    onChange={(e) => setEodHour(e.target.value)}
-                    className="w-full bg-[rgba(10,11,8,0.9)] border border-[var(--border-subtle)] text-xs text-[#f2f2ec] rounded-xl px-3 py-2 outline-none"
-                  >
-                    <option value="17:00">17:00 (5:00 PM)</option>
-                    <option value="18:00">18:00 (6:00 PM)</option>
-                    <option value="19:00">19:00 (7:00 PM)</option>
-                    <option value="20:00">20:00 (8:00 PM)</option>
-                  </select>
-                </div>
-
-                <div className="flex items-center gap-2 pt-6">
+              <div className="pt-2">
+                <div className="flex items-center gap-2">
                   <input
                     type="checkbox"
                     id="soundToggle"
@@ -286,6 +241,16 @@ export function SettingsModal({ isOpen, onClose, onConfigSaved }) {
                   </label>
                 </div>
               </div>
+            </div>
+          )}
+
+          {saveError && (
+            <div
+              role="alert"
+              className="p-2.5 rounded-lg text-xs flex items-start gap-2 bg-[rgba(255,123,123,0.12)] text-[#ff7b7b] border border-[#ff7b7b]/25"
+            >
+              <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+              <span>{saveError}</span>
             </div>
           )}
 

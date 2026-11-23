@@ -1,20 +1,14 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Default capability for TaskCatch main window",
+  "description": "Default capability for TaskCatch main window. The global hotkey is registered from Rust, so the webview gets no global-shortcut permissions.",
   "windows": ["main"],
   "permissions": [
     "core:default",
-    "global-shortcut:default",
-    "global-shortcut:allow-is-registered",
-    "global-shortcut:allow-register",
-    "global-shortcut:allow-unregister",
     "notification:default",
     "notification:allow-is-permission-granted",
     "notification:allow-request-permission",
     "notification:allow-notify",
-    "dialog:default",
-    "shell:default",
-    "shell:allow-open"
+    "shell:default"
   ]
 }

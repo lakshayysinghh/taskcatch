@@ -18,6 +18,7 @@ import { DownloadModal } from './components/DownloadModal';
 import { TaskDetailModal } from './components/TaskDetailModal';
 import { CustomDropdown } from './components/CustomDropdown';
 import { CATEGORIES, DUE_SOON_MS, compareByDeadline, isDueWithin, isOverdue } from './lib/taskMeta';
+import { isSoundEnabled } from './lib/prefs';
 
 export function App() {
   const [currentView, setCurrentView] = useState('dashboard'); // 'dashboard' | 'overview'
@@ -68,6 +69,7 @@ export function App() {
   }, []);
 
   const playCaptureChime = () => {
+    if (!isSoundEnabled()) return;
     try {
       const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
       const osc = audioCtx.createOscillator();
@@ -513,7 +515,7 @@ export function App() {
                         className="px-5 py-2.5 text-[13px] font-bold rounded-[10px] text-[#0b0c0a] shadow-[0_0_15px_rgba(168,173,122,0.15)] hover:opacity-95 transition-all inline-flex items-center gap-1.5 mt-2"
                         style={{ background: 'linear-gradient(135deg, var(--olive-100), var(--olive-500))' }}
                       >
-                        <Sparkles className="w-4 h-4" /> Extract with AI
+                        <Sparkles className="w-4 h-4" /> Quick add a task
                       </button>
                     </div>
                   )}

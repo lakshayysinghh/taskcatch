@@ -88,6 +88,6 @@ export default {
     },
   },
   plugins: [
-    require('@tailwindcss/typography'), // For TaskView prose class
+    require('@tailwindcss/typography'), // `prose` styles for Markdown replies in MorningStandupModal
   ],
 };
