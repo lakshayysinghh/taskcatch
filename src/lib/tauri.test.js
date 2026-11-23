@@ -18,6 +18,35 @@ describe('environment', () => {
   });
 });
 
+/** Adds a task through the backend and returns it. */
+const addTask = (content = 'Write the report', extra = {}) =>
+  invoke('create_task_item', { content, priority: 'Medium', category: 'General', deadline: null, ...extra });
+
+describe('get_tasks', () => {
+  it('starts with no tasks — no demo data', async () => {
+    expect(await invoke('get_tasks')).toEqual([]);
+  });
+
+  it('removes demo tasks seeded by earlier versions, keeping real ones', async () => {
+    localStorage.setItem(
+      'taskcatch_web_tasks',
+      JSON.stringify([
+        { id: 'sample-1', content: 'Deploy hotfix for authentication token expiry' },
+        { id: 'web-123-abc', content: 'My real task', priority: 'Medium', category: 'General', timestamp: '2026-11-01T00:00:00Z' },
+        { id: 'sample-4', content: 'Order replacement ergonomic mouse' },
+      ])
+    );
+    const tasks = await invoke('get_tasks');
+    expect(tasks.map((t) => t.id)).toEqual(['web-123-abc']);
+    expect(JSON.parse(localStorage.getItem('taskcatch_web_tasks'))).toHaveLength(1); // cleaned up for good
+  });
+
+  it('survives corrupt stored data', async () => {
+    localStorage.setItem('taskcatch_web_tasks', '{not json');
+    expect(await invoke('get_tasks')).toEqual([]);
+  });
+});
+
 describe('create_task_item', () => {
   it('validates and normalises input, and keeps the source text', async () => {
     const t = await invoke('create_task_item', {
@@ -39,7 +68,7 @@ describe('create_task_item', () => {
 
 describe('update_task_item', () => {
   it('saves edits and never changes the capture time', async () => {
-    const [first] = await invoke('get_tasks');
+    const first = await addTask();
     const deadline = new Date(2026, 11, 1, 9, 0).toISOString();
     await invoke('update_task_item', { taskId: first.id, patch: { content: 'Edited', deadline } });
     const reloaded = (await invoke('get_tasks')).find((t) => t.id === first.id);
@@ -47,7 +76,7 @@ describe('update_task_item', () => {
   });
 
   it('rejects unknown tasks and invalid values', async () => {
-    const [first] = await invoke('get_tasks');
+    const first = await addTask();
     await expect(invoke('update_task_item', { taskId: 'nope', patch: {} })).rejects.toBeDefined();
     await expect(invoke('update_task_item', { taskId: first.id, patch: { priority: 'Extreme' } })).rejects.toBeDefined();
   });
@@ -55,7 +84,7 @@ describe('update_task_item', () => {
 
 describe('toggle_task_item', () => {
   it('returns the saved state and rejects unknown tasks', async () => {
-    const [first] = await invoke('get_tasks');
+    const first = await addTask();
     expect(await invoke('toggle_task_item', { taskId: first.id })).toBe(!first.completed);
     await expect(invoke('toggle_task_item', { taskId: 'nope' })).rejects.toBeDefined();
   });
@@ -76,13 +105,14 @@ describe('chat_with_standup_ai', () => {
 
   it('sends local time, applies only valid changes, to the deadline', async () => {
     setApiKey('placeholder-key');
-    const target = (await invoke('get_tasks')).find((t) => t.id === 'sample-1');
+    const target = await addTask('Deploy the hotfix', { priority: 'Urgent' });
+    const other = await addTask('Review the budget');
     const fetchMock = vi.fn(async () =>
       groqResponse({
         reply: 'Done.',
         mutations: [
-          { task_id: 'sample-1', action: 'update', update_timestamp: '2026-11-26T09:00:00+05:30', update_priority: 'low' },
-          { task_id: 'sample-2', action: 'update', update_priority: 'EXTREME' },
+          { task_id: target.id, action: 'update', update_timestamp: '2026-11-26T09:00:00+05:30', update_priority: 'low' },
+          { task_id: other.id, action: 'update', update_priority: 'EXTREME' },
           { task_id: 'ghost', action: 'update', update_priority: 'High' },
         ],
       })
@@ -98,7 +128,7 @@ describe('chat_with_standup_ai', () => {
     expect(res.mutations[0]).toMatchObject({ task_title: target.content, update_priority: 'Low' });
     expect(res.reply).toMatch(/2 suggested change\(s\) could not be applied/);
 
-    const after = (await invoke('get_tasks')).find((t) => t.id === 'sample-1');
+    const after = (await invoke('get_tasks')).find((t) => t.id === target.id);
     expect(new Date(after.deadline).getTime()).toBe(new Date('2026-11-26T09:00:00+05:30').getTime());
     expect(after.timestamp).toBe(target.timestamp);
     expect(after.priority).toBe('Low');
