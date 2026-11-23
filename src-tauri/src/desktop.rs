@@ -6,14 +6,20 @@ use tauri_plugin_notification::NotificationExt;
 use serde::Serialize;
 use chrono::Utc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Mutex;
+use std::sync::{Mutex, MutexGuard};
 use std::time::Duration;
 
 use crate::ai_client;
 use crate::capture;
 use crate::config::{self, AppConfig, ConfigState};
 use crate::db::{self, Task};
-use crate::hotkey;
+use crate::hotkey::{self, HotkeyAction, HotkeyMap};
+use crate::voice;
+
+/// Locks a mutex even if a previous holder panicked (the data is plain values).
+fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(|p| p.into_inner())
+}
 
 #[derive(Clone, Serialize)]
 struct StatusPayload {
@@ -43,29 +49,36 @@ async fn update_config(app: AppHandle, state: tauri::State<'_, ConfigState>, new
     let mut new_config = new_config;
     new_config.groq_api_key = new_config.groq_api_key.trim().to_string();
     new_config.global_hotkey = new_config.global_hotkey.trim().to_string();
-    let old_hotkey = state.0.lock().unwrap().global_hotkey.clone();
+    new_config.voice_hotkey = new_config.voice_hotkey.trim().to_string();
+    new_config.dictation_hotkey = new_config.dictation_hotkey.trim().to_string();
+    new_config.voice_language = new_config.voice_language.trim().to_lowercase();
+    let old_config = lock(&state.0).clone();
 
-    // Register the new hotkey before saving anything. If the shortcut is
-    // invalid or taken, the previous one is put back and the saved config is
-    // left unchanged, so the app never ends up with no working hotkey.
-    if let Err(e) = hotkey::register_hotkey(&app, &new_config.global_hotkey) {
-        eprintln!("Failed to register new hotkey '{}': {}", new_config.global_hotkey, e);
-        restore_hotkey(&app, &old_hotkey);
+    // Register the new hotkeys before saving anything. If one is invalid,
+    // duplicated or taken, the previous set is put back and the saved config
+    // is left unchanged, so the app never ends up with no working hotkeys.
+    if let Err(e) = register_all_hotkeys(&app, &new_config) {
+        eprintln!("Failed to register new hotkeys: {}", e);
+        restore_hotkeys(&app, &old_config);
         return Err(e);
     }
 
     if let Err(e) = config::save_config(&new_config) {
-        restore_hotkey(&app, &old_hotkey);
+        restore_hotkeys(&app, &old_config);
         return Err(format!("Could not save settings: {}", e));
     }
 
-    *state.0.lock().unwrap() = new_config;
+    *lock(&state.0) = new_config;
     Ok(())
 }
 
-fn restore_hotkey(app: &AppHandle, shortcut: &str) {
-    if let Err(e) = hotkey::register_hotkey(app, shortcut) {
-        eprintln!("Could not restore previous hotkey '{}': {}", shortcut, e);
+fn register_all_hotkeys(app: &AppHandle, cfg: &AppConfig) -> Result<(), String> {
+    hotkey::register_hotkeys(app, &cfg.global_hotkey, &cfg.voice_hotkey, &cfg.dictation_hotkey)
+}
+
+fn restore_hotkeys(app: &AppHandle, cfg: &AppConfig) {
+    if let Err(e) = register_all_hotkeys(app, cfg) {
+        eprintln!("Could not restore the previous hotkeys: {}", e);
     }
 }
 
@@ -232,9 +245,18 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
-                .with_handler(|app, _shortcut, event| {
-                    if event.state() == ShortcutState::Pressed {
-                        let _ = app.emit("trigger-capture", ());
+                .with_handler(|app, shortcut, event| {
+                    let pressed = event.state() == ShortcutState::Pressed;
+                    match hotkey::action_for(app, shortcut) {
+                        Some(HotkeyAction::Capture) => {
+                            if pressed {
+                                let _ = app.emit("trigger-capture", ());
+                            }
+                        }
+                        // Voice and dictation are hold-to-talk: record while held.
+                        Some(HotkeyAction::Voice) => on_voice_key(app, VoicePurpose::Task, pressed),
+                        Some(HotkeyAction::Dictation) => on_voice_key(app, VoicePurpose::Dictation, pressed),
+                        None => {}
                     }
                 })
                 .build(),
@@ -243,14 +265,12 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .setup(|app| {
             let config = config::load_config();
-            let initial_hotkey = config.global_hotkey.clone();
-            app.manage(ConfigState(Mutex::new(config)));
-
-            if !initial_hotkey.is_empty() {
-                if let Err(e) = hotkey::register_hotkey(app.handle(), &initial_hotkey) {
-                    eprintln!("Failed to register initial hotkey '{}': {}", initial_hotkey, e);
-                }
+            app.manage(HotkeyMap::default());
+            app.manage(VoiceState(Mutex::new(VoiceSession::Idle)));
+            if let Err(e) = register_all_hotkeys(app.handle(), &config) {
+                eprintln!("Failed to register hotkeys at start-up: {}", e);
             }
+            app.manage(ConfigState(Mutex::new(config)));
 
             let app_handle = app.handle().clone();
             app.listen("trigger-capture", move |_| {
@@ -284,7 +304,10 @@ pub fn run() {
             create_task_item,
             update_task_item,
             trigger_capture,
-            chat_with_standup_ai
+            chat_with_standup_ai,
+            voice_start,
+            voice_stop,
+            voice_cancel
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -337,15 +360,22 @@ fn show_tray_hint_once(app: &AppHandle) {
     if TRAY_HINT_SHOWN.swap(true, Ordering::Relaxed) {
         return;
     }
-    let hotkey = app.state::<ConfigState>().0.lock().unwrap().global_hotkey.clone();
-    let body = if hotkey.is_empty() {
-        "TaskCatch is still running in the tray. Right-click the tray icon to quit.".to_string()
-    } else {
-        format!(
-            "Press {} to capture highlighted text. Right-click the tray icon to quit.",
-            hotkey
-        )
+    let (hotkey, voice_key) = {
+        let config_state = app.state::<ConfigState>();
+        let cfg = lock(&config_state.0);
+        (cfg.global_hotkey.clone(), cfg.voice_hotkey.clone())
     };
+    let mut body = String::new();
+    if !hotkey.is_empty() {
+        body.push_str(&format!("Press {} to capture highlighted text. ", hotkey));
+    }
+    if !voice_key.is_empty() {
+        body.push_str(&format!("Hold {} to say a task. ", voice_key));
+    }
+    if body.is_empty() {
+        body.push_str("TaskCatch is still running in the tray. ");
+    }
+    body.push_str("Right-click the tray icon to quit.");
     let _ = app
         .notification()
         .builder()
@@ -400,20 +430,28 @@ async fn handle_capture_flow(app: &AppHandle) {
             return;
         }
     };
-    let original_text = capture_res.text;
-    let source_app = capture_res.source_app;
+    // 3–5. Parse, save and announce the task.
+    match create_task_from_text(app, capture_res.text, capture_res.source_app).await {
+        Ok(_) => {
+            let _ = app.emit("status-update", StatusPayload::new("done"));
+        }
+        Err(e) => {
+            eprintln!("DB save error: {}", e);
+            let _ = app.emit(
+                "status-update",
+                StatusPayload::error(format!("Captured text could not be saved: {}", e)),
+            );
+        }
+    }
+}
 
-    // 3. Retrieve Groq API Key
-    let api_key = {
-        let state = app.state::<ConfigState>();
-        let key = state.0.lock().unwrap().groq_api_key.clone();
-        key
-    };
-
-    // 4. AI Structured Parsing with Heuristic Fallback
+/// Turns captured or spoken text into a task: AI parsing (keyword fallback),
+/// save, then announce it. Only announced once it is actually on disk, so the
+/// UI never shows a task that vanishes on the next restart.
+async fn create_task_from_text(app: &AppHandle, original_text: String, source_app: Option<String>) -> Result<Task, String> {
+    let api_key = lock(&app.state::<ConfigState>().0).groq_api_key.clone();
     let parsed = ai_client::process_text(&api_key, &original_text).await;
 
-    // 5. Persist to Database
     let new_task = Task {
         id: uuid::Uuid::new_v4().to_string(),
         content: parsed.title,
@@ -425,19 +463,222 @@ async fn handle_capture_flow(app: &AppHandle) {
         source_app,
         completed: false,
     };
+    db::save_task(new_task.clone())?;
+    let _ = app.emit("new-task-captured", new_task.clone());
+    Ok(new_task)
+}
 
-    // Only announce the task once it is actually on disk; otherwise the UI
-    // would show a capture that vanishes on the next restart.
-    if let Err(e) = db::save_task(new_task.clone()) {
-        eprintln!("DB save error: {}", e);
-        let _ = app.emit(
-            "status-update",
-            StatusPayload::error(format!("Captured text could not be saved: {}", e)),
-        );
-        return;
+// ---------------------------------------------------------------------------
+// Voice: hold-to-talk hotkeys and the in-app mic buttons
+// ---------------------------------------------------------------------------
+
+/// What a recording is for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+enum VoicePurpose {
+    /// Voice hotkey: the transcript becomes a new task.
+    Task,
+    /// Dictation hotkey: the transcript is typed into the focused app.
+    Dictation,
+    /// A mic button in the app: the transcript is returned to the page.
+    Text,
+}
+
+/// One recording at a time, across hotkeys and mic buttons.
+enum VoiceSession {
+    Idle,
+    /// The microphone is opening. A key released before it is ready is
+    /// remembered so the take is discarded as too short.
+    Starting { purpose: VoicePurpose, release_pending: bool },
+    Recording { purpose: VoicePurpose, recording: voice::Recording },
+}
+
+struct VoiceState(Mutex<VoiceSession>);
+
+#[derive(Clone, Serialize)]
+struct VoiceStatus {
+    /// listening | transcribing | done | error
+    state: &'static str,
+    purpose: VoicePurpose,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    message: Option<String>,
+}
+
+fn emit_voice(app: &AppHandle, state: &'static str, purpose: VoicePurpose, message: Option<String>) {
+    let _ = app.emit("voice-status", VoiceStatus { state, purpose, message });
+}
+
+fn on_voice_key(app: &AppHandle, purpose: VoicePurpose, pressed: bool) {
+    if pressed {
+        begin_hotkey_recording(app.clone(), purpose);
+    } else {
+        end_hotkey_recording(app.clone(), purpose);
     }
+}
 
-    // 6. Broadcast event to React frontend & complete status
-    let _ = app.emit("new-task-captured", new_task);
-    let _ = app.emit("status-update", StatusPayload::new("done"));
+fn begin_hotkey_recording(app: AppHandle, purpose: VoicePurpose) {
+    {
+        let state = app.state::<VoiceState>();
+        let mut session = lock(&state.0);
+        if !matches!(*session, VoiceSession::Idle) {
+            return; // already recording (another key or a mic button)
+        }
+        *session = VoiceSession::Starting { purpose, release_pending: false };
+    }
+    emit_voice(&app, "listening", purpose, None);
+
+    // Opening the microphone blocks briefly; keep it off the hotkey thread.
+    tauri::async_runtime::spawn_blocking(move || {
+        let result = voice::start();
+        let state = app.state::<VoiceState>();
+        let mut session = lock(&state.0);
+        let released_early = matches!(*session, VoiceSession::Starting { release_pending: true, .. });
+        match result {
+            Ok(recording) if released_early => {
+                *session = VoiceSession::Idle;
+                drop(session);
+                let _ = recording.finish();
+                emit_voice(&app, "error", purpose, Some("Too short — hold the key while you speak.".to_string()));
+            }
+            Ok(recording) => {
+                *session = VoiceSession::Recording { purpose, recording };
+            }
+            Err(e) => {
+                *session = VoiceSession::Idle;
+                drop(session);
+                emit_voice(&app, "error", purpose, Some(e));
+            }
+        }
+    });
+}
+
+fn end_hotkey_recording(app: AppHandle, purpose: VoicePurpose) {
+    let recording = {
+        let state = app.state::<VoiceState>();
+        let mut session = lock(&state.0);
+        match std::mem::replace(&mut *session, VoiceSession::Idle) {
+            VoiceSession::Recording { purpose: p, recording } if p == purpose => recording,
+            VoiceSession::Starting { purpose: p, .. } if p == purpose => {
+                *session = VoiceSession::Starting { purpose: p, release_pending: true };
+                return;
+            }
+            other => {
+                *session = other;
+                return;
+            }
+        }
+    };
+    tauri::async_runtime::spawn(async move {
+        finish_hotkey_recording(app, purpose, recording).await;
+    });
+}
+
+async fn finish_hotkey_recording(app: AppHandle, purpose: VoicePurpose, recording: voice::Recording) {
+    emit_voice(&app, "transcribing", purpose, None);
+    let text = match transcribe_recording(&app, recording).await {
+        Ok(t) => t,
+        Err(e) => {
+            emit_voice(&app, "error", purpose, Some(e));
+            return;
+        }
+    };
+
+    let outcome = match purpose {
+        VoicePurpose::Task => create_task_from_text(&app, text, Some("Voice note".to_string()))
+            .await
+            .map(|_| ())
+            .map_err(|e| format!("The task could not be saved: {}", e)),
+        VoicePurpose::Dictation => {
+            let (api_key, cleanup) = {
+                let config_state = app.state::<ConfigState>();
+                let cfg = lock(&config_state.0);
+                (cfg.groq_api_key.clone(), cfg.dictation_cleanup)
+            };
+            let final_text = if cleanup { ai_client::clean_dictation(&api_key, &text).await } else { text };
+            match tauri::async_runtime::spawn_blocking(move || capture::type_text(&final_text)).await {
+                Ok(result) => result,
+                Err(e) => Err(format!("Typing failed: {}", e)),
+            }
+        }
+        VoicePurpose::Text => Ok(()),
+    };
+
+    match outcome {
+        Ok(()) => emit_voice(&app, "done", purpose, None),
+        Err(e) => emit_voice(&app, "error", purpose, Some(e)),
+    }
+}
+
+/// Stops a recording, checks it for speech and sends it to Whisper.
+async fn transcribe_recording(app: &AppHandle, recording: voice::Recording) -> Result<String, String> {
+    let wav = tauri::async_runtime::spawn_blocking(move || recording.finish().and_then(voice::prepare_wav))
+        .await
+        .map_err(|e| e.to_string())??;
+    let (api_key, language) = {
+        let config_state = app.state::<ConfigState>();
+        let cfg = lock(&config_state.0);
+        (cfg.groq_api_key.clone(), cfg.voice_language.clone())
+    };
+    let text = ai_client::transcribe(&api_key, wav, &language).await?;
+    if text.trim().is_empty() {
+        return Err("No speech was recognised. Try again a little closer to the microphone.".to_string());
+    }
+    Ok(text)
+}
+
+/// Mic button pressed: start recording for the page.
+#[tauri::command]
+async fn voice_start(app: AppHandle) -> Result<(), String> {
+    {
+        let state = app.state::<VoiceState>();
+        let mut session = lock(&state.0);
+        if !matches!(*session, VoiceSession::Idle) {
+            return Err("Already recording. Finish the current recording first.".to_string());
+        }
+        *session = VoiceSession::Starting { purpose: VoicePurpose::Text, release_pending: false };
+    }
+    let result = tauri::async_runtime::spawn_blocking(voice::start)
+        .await
+        .map_err(|e| e.to_string())
+        .and_then(|r| r);
+    let state = app.state::<VoiceState>();
+    let mut session = lock(&state.0);
+    match result {
+        Ok(recording) => {
+            *session = VoiceSession::Recording { purpose: VoicePurpose::Text, recording };
+            Ok(())
+        }
+        Err(e) => {
+            *session = VoiceSession::Idle;
+            Err(e)
+        }
+    }
+}
+
+/// Mic button pressed again: stop, transcribe and return the text.
+#[tauri::command]
+async fn voice_stop(app: AppHandle) -> Result<String, String> {
+    let recording = take_text_recording(&app).ok_or_else(|| "Not recording.".to_string())?;
+    transcribe_recording(&app, recording).await
+}
+
+/// The page closed or the user cancelled: stop and discard.
+#[tauri::command]
+async fn voice_cancel(app: AppHandle) -> Result<(), String> {
+    if let Some(recording) = take_text_recording(&app) {
+        let _ = tauri::async_runtime::spawn_blocking(move || recording.finish()).await;
+    }
+    Ok(())
+}
+
+fn take_text_recording(app: &AppHandle) -> Option<voice::Recording> {
+    let state = app.state::<VoiceState>();
+    let mut session = lock(&state.0);
+    match std::mem::replace(&mut *session, VoiceSession::Idle) {
+        VoiceSession::Recording { purpose: VoicePurpose::Text, recording } => Some(recording),
+        other => {
+            *session = other;
+            None
+        }
+    }
 }

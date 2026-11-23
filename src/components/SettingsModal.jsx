@@ -1,19 +1,43 @@
 import React, { useEffect, useState } from 'react';
-import { AlertCircle, ArrowUpRight, Bot, CheckCircle2, Keyboard, Loader2, Settings as SettingsIcon, Volume2 } from 'lucide-react';
-import { safeOpen as open, safeInvoke as invoke } from '../lib/tauri';
+import { AlertCircle, ArrowUpRight, Bot, CheckCircle2, Keyboard, Loader2, Mic, Settings as SettingsIcon, Volume2 } from 'lucide-react';
+import { isTauri, safeOpen as open, safeInvoke as invoke } from '../lib/tauri';
 import { isSoundEnabled, setSoundEnabled as saveSoundPreference } from '../lib/prefs';
 import { Modal } from './ui/Modal';
 import { Button } from './ui/Button';
-import { Label, inputClass } from './ui/Field';
+import { Label, Select, inputClass } from './ui/Field';
 
 // The model the backend actually calls (MODEL in src-tauri/src/ai_client.rs).
 const MODEL_LABEL = 'Llama 3.3 70B (llama-3.3-70b-versatile) on Groq';
-const HOTKEY_PRESETS = ['F9', 'F8', 'CommandOrControl+Shift+T', 'Alt+Space'];
+const HOTKEY_PRESETS = ['F9', 'F10', 'CommandOrControl+Shift+T', 'Alt+Space'];
+const VOICE_PRESETS = ['F8', 'F6', 'CommandOrControl+Shift+Space'];
+const DICTATION_PRESETS = ['F7', 'F4', 'CommandOrControl+Shift+D'];
+
+// ISO-639-1 codes Whisper accepts; empty = detect automatically.
+const LANGUAGES = [
+  ['', 'Detect automatically'],
+  ['en', 'English'],
+  ['hi', 'Hindi'],
+  ['bn', 'Bengali'],
+  ['ta', 'Tamil'],
+  ['te', 'Telugu'],
+  ['mr', 'Marathi'],
+  ['ur', 'Urdu'],
+  ['es', 'Spanish'],
+  ['fr', 'French'],
+  ['de', 'German'],
+  ['pt', 'Portuguese'],
+  ['it', 'Italian'],
+  ['ru', 'Russian'],
+  ['ar', 'Arabic'],
+  ['ja', 'Japanese'],
+  ['zh', 'Chinese'],
+];
 
 function Tabs({ value, onChange }) {
   const tabs = [
     { value: 'ai', label: 'AI', icon: Bot },
     { value: 'preferences', label: 'Hotkey & Sound', icon: Keyboard },
+    { value: 'voice', label: 'Voice', icon: Mic },
   ];
   return (
     <div className="mb-5 inline-flex rounded-[10px] border border-line-strong bg-black/20 p-[3px]" role="tablist">
@@ -51,10 +75,45 @@ function Switch({ id, checked, onChange }) {
   );
 }
 
+function PresetRow({ presets, value, onPick, allowOff = false }) {
+  return (
+    <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+      <span className="mr-0.5 text-[12px] text-ink-3">Presets:</span>
+      {presets.map((preset) => (
+        <button
+          key={preset}
+          type="button"
+          onClick={() => onPick(preset)}
+          className={`rounded-md border px-2 py-0.5 font-mono text-[11px] transition ${
+            value === preset ? 'border-olive-300/40 bg-olive-300/10 text-ink' : 'border-line-strong text-ink-2 hover:text-ink'
+          }`}
+        >
+          {preset}
+        </button>
+      ))}
+      {allowOff && (
+        <button
+          type="button"
+          onClick={() => onPick('')}
+          className={`rounded-md border px-2 py-0.5 text-[11px] transition ${
+            value === '' ? 'border-olive-300/40 bg-olive-300/10 text-ink' : 'border-line-strong text-ink-2 hover:text-ink'
+          }`}
+        >
+          Off
+        </button>
+      )}
+    </div>
+  );
+}
+
 export function SettingsModal({ isOpen, onClose, onConfigSaved }) {
-  const [activeTab, setActiveTab] = useState('ai'); // 'ai' | 'preferences'
+  const [activeTab, setActiveTab] = useState('ai'); // 'ai' | 'preferences' | 'voice'
   const [apiKey, setApiKey] = useState('');
   const [hotkey, setHotkey] = useState('F9');
+  const [voiceHotkey, setVoiceHotkey] = useState('F8');
+  const [dictationHotkey, setDictationHotkey] = useState('F7');
+  const [voiceLanguage, setVoiceLanguage] = useState('');
+  const [dictationCleanup, setDictationCleanup] = useState(true);
   const [soundEnabled, setSoundEnabled] = useState(true);
 
   const [isTesting, setIsTesting] = useState(false);
@@ -72,6 +131,11 @@ export function SettingsModal({ isOpen, onClose, onConfigSaved }) {
           if (cfg) {
             setApiKey(cfg.groq_api_key || '');
             setHotkey(cfg.global_hotkey || 'F9');
+            // Empty means "off" for the voice keys, so only fall back when the field is missing.
+            setVoiceHotkey(cfg.voice_hotkey ?? 'F8');
+            setDictationHotkey(cfg.dictation_hotkey ?? 'F7');
+            setVoiceLanguage(cfg.voice_language || '');
+            setDictationCleanup(cfg.dictation_cleanup ?? true);
           }
         })
         .catch(console.error);
@@ -107,9 +171,14 @@ export function SettingsModal({ isOpen, onClose, onConfigSaved }) {
     setIsSaving(true);
     setSaveError(null);
 
+    // Always send every field: the backend fills missing ones with defaults.
     const newConfig = {
       groq_api_key: apiKey.trim(),
       global_hotkey: hotkey.trim() || 'F9',
+      voice_hotkey: voiceHotkey.trim(),
+      dictation_hotkey: dictationHotkey.trim(),
+      voice_language: voiceLanguage,
+      dictation_cleanup: dictationCleanup,
     };
     try {
       // The backend registers the hotkey first and only saves if that works.
@@ -131,7 +200,7 @@ export function SettingsModal({ isOpen, onClose, onConfigSaved }) {
       onClose={onClose}
       icon={SettingsIcon}
       title="Settings"
-      description="Groq API key, capture hotkey and sound"
+      description="Groq API key, hotkeys, voice and sound"
       footer={
         <div className="ml-auto flex gap-2">
           <Button variant="ghost" onClick={onClose}>
@@ -209,21 +278,7 @@ export function SettingsModal({ isOpen, onClose, onConfigSaved }) {
                 spellCheck={false}
                 className={`${inputClass} h-10 font-mono text-[13px] text-olive-100`}
               />
-              <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
-                <span className="mr-0.5 text-[12px] text-ink-3">Presets:</span>
-                {HOTKEY_PRESETS.map((preset) => (
-                  <button
-                    key={preset}
-                    type="button"
-                    onClick={() => setHotkey(preset)}
-                    className={`rounded-md border px-2 py-0.5 font-mono text-[11px] transition ${
-                      hotkey === preset ? 'border-olive-300/40 bg-olive-300/10 text-ink' : 'border-line-strong text-ink-2 hover:text-ink'
-                    }`}
-                  >
-                    {preset}
-                  </button>
-                ))}
-              </div>
+              <PresetRow presets={HOTKEY_PRESETS} value={hotkey} onPick={setHotkey} />
             </div>
 
             <div className="flex items-center justify-between gap-4 rounded-xl border border-line bg-black/20 p-4">
@@ -236,6 +291,74 @@ export function SettingsModal({ isOpen, onClose, onConfigSaved }) {
               </label>
               <Switch id="soundToggle" checked={soundEnabled} onChange={setSoundEnabled} />
             </div>
+          </div>
+        )}
+
+        {activeTab === 'voice' && (
+          <div className="space-y-6">
+            {!isTauri && (
+              <p className="rounded-xl border border-line bg-black/20 p-3.5 text-[12.5px] leading-relaxed text-ink-2">
+                In the browser, voice works through the mic buttons in Quick add and Standup. The hold-to-talk hotkeys and
+                dictation into other apps need the desktop app.
+              </p>
+            )}
+
+            <div>
+              <Label htmlFor="voice-hotkey" hint="Hold to speak a new task">
+                Voice task hotkey
+              </Label>
+              <input
+                id="voice-hotkey"
+                type="text"
+                value={voiceHotkey}
+                onChange={(e) => setVoiceHotkey(e.target.value)}
+                placeholder="Off"
+                spellCheck={false}
+                className={`${inputClass} h-10 font-mono text-[13px] text-olive-100`}
+              />
+              <PresetRow presets={VOICE_PRESETS} value={voiceHotkey} onPick={setVoiceHotkey} allowOff />
+            </div>
+
+            <div>
+              <Label htmlFor="dictation-hotkey" hint="Hold to type speech into any app">
+                Dictation hotkey
+              </Label>
+              <input
+                id="dictation-hotkey"
+                type="text"
+                value={dictationHotkey}
+                onChange={(e) => setDictationHotkey(e.target.value)}
+                placeholder="Off"
+                spellCheck={false}
+                className={`${inputClass} h-10 font-mono text-[13px] text-olive-100`}
+              />
+              <PresetRow presets={DICTATION_PRESETS} value={dictationHotkey} onPick={setDictationHotkey} allowOff />
+            </div>
+
+            <div>
+              <Label htmlFor="voice-language" hint="Pin one if detection picks the wrong script">
+                Language
+              </Label>
+              <Select id="voice-language" value={voiceLanguage} onChange={(e) => setVoiceLanguage(e.target.value)}>
+                {LANGUAGES.map(([code, name]) => (
+                  <option key={code || 'auto'} value={code}>
+                    {name}
+                  </option>
+                ))}
+              </Select>
+            </div>
+
+            <div className="flex items-center justify-between gap-4 rounded-xl border border-line bg-black/20 p-4">
+              <label htmlFor="dictationCleanup" className="cursor-pointer">
+                <span className="block text-[13.5px] font-medium text-ink">Tidy dictated text</span>
+                <span className="block text-[12.5px] text-ink-3">Fix punctuation and drop filler words before typing. Off types exactly what was heard.</span>
+              </label>
+              <Switch id="dictationCleanup" checked={dictationCleanup} onChange={setDictationCleanup} />
+            </div>
+
+            <p className="text-[12px] leading-relaxed text-ink-3">
+              Recordings go straight from this device to Groq Whisper with your key and are never saved.
+            </p>
           </div>
         )}
 

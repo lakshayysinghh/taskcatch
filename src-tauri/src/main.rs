@@ -6,6 +6,7 @@ mod capture;
 mod ai_client;
 mod config;
 mod db;
+mod voice;
 
 fn main() {
     desktop::run();

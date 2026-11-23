@@ -20,6 +20,10 @@ describe('App (desktop)', () => {
     render(<App />);
     expect(await screen.findByText('Your task list is empty')).toBeTruthy();
     expect(screen.queryByRole('dialog')).toBeNull();
-    expect(screen.getByText('Highlight text in Slack, Chrome or Outlook and press the hotkey.')).toBeTruthy();
+    expect(
+      screen.getByText('Highlight text in Slack, Chrome or Outlook and press the hotkey, or hold the voice key and say it.')
+    ).toBeTruthy();
+    // Both keys are shown on the capture tile: text capture and voice.
+    expect(screen.getAllByText('F8').length).toBeGreaterThan(0);
   });
 });

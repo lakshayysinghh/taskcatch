@@ -5,7 +5,7 @@ import { MorningStandupModal } from './MorningStandupModal';
 import { safeInvoke } from '../lib/tauri';
 import { makeTask } from '../test/fixtures';
 
-vi.mock('../lib/tauri', () => ({ safeInvoke: vi.fn() }));
+vi.mock('../lib/tauri', () => ({ safeInvoke: vi.fn(), isTauri: false }));
 
 const HOUR = 3600e3;
 const renderModal = (props = {}) =>

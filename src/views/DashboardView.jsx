@@ -25,15 +25,17 @@ function summary({ totalCount, activeCount, due48hCount, overdueCount }) {
 }
 
 /** Shown instead of stats, filters and the list until the first task exists. */
-function EmptyWorkspace({ hotkey, canCapture, onOpenQuickAdd, onOpenNewTask, onOpenGuide }) {
+function EmptyWorkspace({ hotkey, voiceHotkey, canCapture, onOpenQuickAdd, onOpenNewTask, onOpenGuide }) {
   const ways = [
     {
       icon: Zap,
       title: canCapture ? 'Capture from any app' : 'Capture from any app (desktop)',
       text: canCapture
-        ? 'Highlight text in Slack, Chrome or Outlook and press the hotkey.'
+        ? voiceHotkey
+          ? 'Highlight text in Slack, Chrome or Outlook and press the hotkey, or hold the voice key and say it.'
+          : 'Highlight text in Slack, Chrome or Outlook and press the hotkey.'
         : 'Install the Windows app, highlight text anywhere and press the hotkey.',
-      keys: [hotkey],
+      keys: canCapture && voiceHotkey ? [hotkey, voiceHotkey] : [hotkey],
     },
     {
       icon: Sparkles,
@@ -144,6 +146,7 @@ export function DashboardView({
   filteredTasks,
   counts,
   hotkey,
+  voiceHotkey = '',
   isCapturing,
   canCapture = true,
   searchQuery,
@@ -241,7 +244,13 @@ export function DashboardView({
         <p>
           {canCapture ? (
             <>
-              Highlight text in any app and press <Kbd>{hotkey}</Kbd> to capture it.
+              Highlight text in any app and press <Kbd>{hotkey}</Kbd>
+              {voiceHotkey ? (
+                <>
+                  , or hold <Kbd>{voiceHotkey}</Kbd> and say a task
+                </>
+              ) : null}
+              .
             </>
           ) : (
             <>
@@ -254,6 +263,7 @@ export function DashboardView({
       {tasks.length === 0 ? (
         <EmptyWorkspace
           hotkey={hotkey}
+          voiceHotkey={voiceHotkey}
           canCapture={canCapture}
           onOpenQuickAdd={onOpenQuickAdd}
           onOpenNewTask={onOpenNewTask}

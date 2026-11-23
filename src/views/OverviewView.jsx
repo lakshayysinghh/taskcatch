@@ -11,8 +11,8 @@ import {
   Github,
   Keyboard,
   Lock,
+  Mic,
   MousePointerClick,
-  PanelBottom,
   Sparkles,
   Zap,
 } from 'lucide-react';
@@ -140,12 +140,12 @@ const FEATURES = [
   { icon: Clock, title: 'Deadlines that make sense', text: '“Tonight”, “tomorrow 5pm” and “by Friday” become real deadlines in your own timezone.' },
   { icon: Bot, title: 'Morning standup assistant', text: 'Ask what to focus on, or have tasks rescheduled and reprioritised in chat.' },
   { icon: Sparkles, title: 'Quick add with Ctrl+K', text: 'Type a task in plain words and watch priority, category and deadline fill in as you type.' },
-  { icon: PanelBottom, title: 'Lives in the tray', text: 'Close the window and keep capturing. Open it from the tray when you want to review.' },
+  { icon: Mic, title: 'Say it instead', text: 'Hold F8 and speak a task, or hold F7 to dictate into any app. Transcribed by Groq Whisper with your own key.' },
 ];
 
 const PRIVACY = [
   { title: 'Stored on your PC', text: 'Tasks are kept in a local file in your Windows profile, with an automatic backup. Not in anyone’s cloud.' },
-  { title: 'Your own Groq key — or none', text: 'With a key, captured text goes straight from your PC to Groq. Without one, a local parser runs fully offline.' },
+  { title: 'Your own Groq key — or none', text: 'With a key, captured text and voice recordings go straight from your PC to Groq and are never saved. Without one, a local parser runs offline.' },
   { title: 'No account, no analytics', text: 'There is no TaskCatch server, sign-up or tracking. The app talks only to Groq, and only if you add a key.' },
   { title: 'Open source', text: 'Read exactly where your data goes, or build TaskCatch yourself. Note: your API key is stored in plain text on your PC.' },
 ];

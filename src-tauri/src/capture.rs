@@ -291,6 +291,23 @@ mod win {
     }
 }
 
+/// Types `text` into whichever app has focus, as Unicode (works for any
+/// keyboard layout and leaves the clipboard alone). Used by dictation.
+/// Blocking: call it off the async runtime.
+pub fn type_text(text: &str) -> Result<(), String> {
+    // Typing while a modifier is held would turn letters into shortcuts.
+    #[cfg(target_os = "windows")]
+    if !win::wait_for_modifiers_released(MODIFIER_RELEASE_TIMEOUT) {
+        return Err("Release Ctrl/Shift/Alt/Win before the text is typed.".to_string());
+    }
+    let clean: String = text.chars().filter(|c| *c != '\0').collect();
+    if clean.trim().is_empty() {
+        return Ok(());
+    }
+    let mut enigo = Enigo::new(&Settings::default()).map_err(|e| format!("{:?}", e))?;
+    enigo.text(&clean).map_err(|e| format!("Could not type the text: {:?}", e))
+}
+
 /// Copies the current selection in the foreground app and returns it,
 /// leaving the user's clipboard exactly as it was (all formats).
 ///
