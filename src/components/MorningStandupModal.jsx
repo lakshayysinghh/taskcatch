@@ -2,19 +2,34 @@ import React, { useState, useEffect, useRef } from 'react';
 import { safeInvoke as invoke } from '../lib/tauri';
 import { X, Sun, Zap, Bot, User, Send, ArrowRight, Loader2, CheckCircle } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
+import { isDueToday, isOverdue } from '../lib/taskMeta';
 
-export function MorningStandupModal({ isOpen, onClose, tasks, onToggleTask, onPushOverdue, onClearCompleted, onRefreshTasks }) {
+/** One line per applied change, e.g. "Deploy hotfix: due Thu, Nov 26, 9:00 AM · priority Urgent". */
+function describeMutation(m) {
+  const parts = [];
+  if (m.update_deadline) {
+    const d = new Date(m.update_deadline);
+    parts.push(
+      Number.isNaN(d.getTime())
+        ? 'deadline updated'
+        : `due ${d.toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}`
+    );
+  }
+  if (m.update_priority) parts.push(`priority ${m.update_priority}`);
+  return `${m.task_title || 'Task'}: ${parts.join(' · ') || 'updated'}`;
+}
+
+export function MorningStandupModal({ isOpen, onClose, tasks, onClearCompleted, onRefreshTasks }) {
   const [messages, setMessages] = useState([]);
   const [inputValue, setInputValue] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const chatEndRef = useRef(null);
 
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-
+  // Counts use each task's deadline, never its capture time.
+  const now = new Date();
   const activeTasks = tasks.filter((t) => !t.completed);
-  const overdueCount = activeTasks.filter(t => new Date(t.timestamp) < today && (t.priority === 'Urgent' || t.priority === 'High')).length;
-  const dueTodayCount = activeTasks.filter(t => new Date(t.timestamp) >= today).length;
+  const overdueCount = tasks.filter((t) => isOverdue(t, now)).length;
+  const dueTodayCount = tasks.filter((t) => isDueToday(t, now)).length;
   const highUrgentTasks = activeTasks.filter(t => t.priority === 'High' || t.priority === 'Urgent');
   const highUrgentCount = highUrgentTasks.length;
 
@@ -47,7 +62,9 @@ Would you like me to reschedule the overdue tasks, give you a summary, or curate
         ]
       }]);
     }
-  }, [isOpen, highUrgentCount, overdueCount]);
+    // Only reset when the modal opens. Counts change as the assistant edits
+    // tasks; re-running then would wipe the conversation mid-chat.
+  }, [isOpen]);
 
   useEffect(() => {
     if (isOpen && chatEndRef.current) {
@@ -211,8 +228,8 @@ Would you like me to reschedule the overdue tasks, give you a summary, or curate
                     <ul className="space-y-1">
                       {msg.mutations.map((m, i) => (
                         <li key={i} className="text-[12px] text-[var(--text-secondary)] flex items-center gap-1.5">
-                          <CheckCircle className="w-3 h-3 text-[var(--olive-500)]" />
-                          Updated Task ({m.action})
+                          <CheckCircle className="w-3 h-3 text-[var(--olive-500)] shrink-0" />
+                          <span>{describeMutation(m)}</span>
                         </li>
                       ))}
                     </ul>

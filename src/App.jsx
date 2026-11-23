@@ -17,6 +17,7 @@ import { ManualCaptureModal } from './components/ManualCaptureModal';
 import { DownloadModal } from './components/DownloadModal';
 import { TaskDetailModal } from './components/TaskDetailModal';
 import { CustomDropdown } from './components/CustomDropdown';
+import { CATEGORIES, DUE_SOON_MS, compareByDeadline, isDueWithin, isOverdue } from './lib/taskMeta';
 
 export function App() {
   const [currentView, setCurrentView] = useState('dashboard'); // 'dashboard' | 'overview'
@@ -111,7 +112,6 @@ export function App() {
 
     Promise.all([
       listen('new-task-captured', handleNewTask),
-      listen('task-created', handleNewTask),
       listen('status-update', (event) => {
         const payload = event.payload;
         if (payload?.state === 'processing') setIsCapturing(true);
@@ -201,45 +201,46 @@ export function App() {
     }
   };
 
+  /** Creates or updates a task in the backend. Returns true only once it is saved. */
   const handleSaveEditedTask = async (taskData) => {
-    if (taskData.id) {
-      // Update existing
-      setTasks((prev) =>
-        prev.map((t) => (t.id === taskData.id ? { ...t, ...taskData } : t))
-      );
-    } else {
-      // Create new
-      try {
+    try {
+      if (taskData.id) {
+        const updated = await invoke('update_task_item', {
+          taskId: taskData.id,
+          patch: {
+            content: taskData.content,
+            priority: taskData.priority,
+            category: taskData.category,
+            deadline: taskData.deadline ?? null,
+            original_text: taskData.original_text ?? null,
+          },
+        });
+        setTasks((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
+      } else {
         const created = await invoke('create_task_item', {
           content: taskData.content,
           priority: taskData.priority,
           category: taskData.category,
-          deadline: taskData.deadline,
+          deadline: taskData.deadline ?? null,
+          originalText: taskData.original_text ?? null,
         });
         setTasks((prev) => [created, ...prev]);
-      } catch (err) {
-        reportError('Could not save new task', err);
       }
+      return true;
+    } catch (err) {
+      reportError(taskData.id ? 'Could not save changes' : 'Could not save new task', err);
+      return false;
     }
   };
 
-  const handlePushOverdue = () => {
-    setTasks((prev) =>
-      prev.map((t) =>
-        t.priority === 'Urgent' || t.priority === 'High'
-          ? { ...t, timestamp: new Date(Date.now() + 86400000).toISOString() }
-          : t
-      )
-    );
-    setIsStandupOpen(false);
-  };
-
-  // Metrics Calculations
+  // Metrics Calculations (deadline-based; `timestamp` is only the capture time)
+  const now = new Date();
   const totalCount = tasks.length;
   const completedCount = tasks.filter((t) => t.completed).length;
   const activeCount = totalCount - completedCount;
   const highPriorityCount = tasks.filter((t) => !t.completed && (t.priority === 'High' || t.priority === 'Urgent')).length;
-  const due48hCount = tasks.filter((t) => !t.completed).length; // Simulated upcoming count
+  const overdueCount = tasks.filter((t) => isOverdue(t, now)).length;
+  const due48hCount = tasks.filter((t) => isDueWithin(t, DUE_SOON_MS, now)).length;
 
   // Filtered & Sorted Task List
   const filteredTasks = useMemo(() => {
@@ -269,7 +270,7 @@ export function App() {
       .sort((a, b) => {
         if (sortOrder === 'newest') return new Date(b.timestamp) - new Date(a.timestamp);
         if (sortOrder === 'oldest') return new Date(a.timestamp) - new Date(b.timestamp);
-        return new Date(b.timestamp) - new Date(a.timestamp);
+        return compareByDeadline(a, b);
       });
   }, [tasks, activeTab, priorityFilter, categoryFilter, searchQuery, sortOrder]);
 
@@ -330,7 +331,7 @@ export function App() {
         <main className="max-w-[1100px] mx-auto px-6 pt-2 space-y-6 relative z-10 animate-in fade-in duration-200">
           {/* Centered Action Deck & Motivational Quote */}
           <DashboardActionDeck
-            overdueCount={highPriorityCount}
+            overdueCount={overdueCount}
             isCapturing={isCapturing}
             onQuickCapture={handleQuickCapture}
             onOpenStandup={() => setIsStandupOpen(true)}
@@ -444,9 +445,7 @@ export function App() {
                   icon={Tag}
                   options={[
                     { value: 'all', label: 'All categories', icon: Tag },
-                    { value: 'General', label: 'General', icon: Tag },
-                    { value: 'Work', label: 'Work', icon: Tag },
-                    { value: 'Personal', label: 'Personal', icon: Tag },
+                    ...CATEGORIES.map((c) => ({ value: c, label: c, icon: Tag })),
                   ]}
                 />
 
@@ -541,8 +540,6 @@ export function App() {
         isOpen={isStandupOpen}
         onClose={() => setIsStandupOpen(false)}
         tasks={tasks}
-        onToggleTask={handleToggleTask}
-        onPushOverdue={handlePushOverdue}
         onClearCompleted={handleClearCompleted}
         onRefreshTasks={() => {
           invoke('get_tasks')

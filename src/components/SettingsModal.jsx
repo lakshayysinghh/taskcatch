@@ -63,15 +63,15 @@ export function SettingsModal({ isOpen, onClose, onConfigSaved }) {
     e.preventDefault();
     setIsSaving(true);
 
+    const newConfig = {
+      groq_api_key: apiKey.trim(),
+      global_hotkey: hotkey.trim() || 'F9',
+    };
     try {
-      await invoke('update_config', {
-        newConfig: {
-          groq_api_key: apiKey.trim(),
-          global_hotkey: hotkey.trim() || 'F9',
-        },
-      });
+      // The backend registers the hotkey first and only saves if that works.
+      await invoke('update_config', { newConfig });
 
-      if (onConfigSaved) onConfigSaved({ groq_api_key: apiKey, global_hotkey: hotkey });
+      if (onConfigSaved) onConfigSaved(newConfig);
       onClose();
     } catch (err) {
       console.error('Failed to update config:', err);

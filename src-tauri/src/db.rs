@@ -1,4 +1,5 @@
-use serde::{Deserialize, Serialize};
+use chrono::DateTime;
+use serde::{Deserialize, Deserializer, Serialize};
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -26,6 +27,125 @@ fn default_priority() -> String {
 
 fn default_category() -> String {
     "General".to_string()
+}
+
+/// The only priorities and categories the app produces. The frontend keeps
+/// the same lists in `src/lib/taskMeta.js`.
+pub const PRIORITIES: [&str; 4] = ["Urgent", "High", "Medium", "Low"];
+pub const CATEGORIES: [&str; 5] = ["General", "Development", "Finance", "Security", "Personal"];
+const MAX_CONTENT_CHARS: usize = 500;
+
+fn canonical(value: &str, allowed: &[&str]) -> Option<String> {
+    let value = value.trim();
+    allowed
+        .iter()
+        .find(|a| a.eq_ignore_ascii_case(value))
+        .map(|a| a.to_string())
+}
+
+/// Case-insensitive match against [`PRIORITIES`], returning the canonical spelling.
+pub fn normalize_priority(value: &str) -> Option<String> {
+    canonical(value, &PRIORITIES)
+}
+
+/// Case-insensitive match against [`CATEGORIES`], returning the canonical spelling.
+pub fn normalize_category(value: &str) -> Option<String> {
+    canonical(value, &CATEGORIES)
+}
+
+/// Accepts an RFC 3339 date-time with a timezone (`Z` or `+05:30`) and
+/// returns it re-serialised. Free text such as "Today at 5 PM" is rejected.
+pub fn normalize_deadline(value: &str) -> Result<String, String> {
+    DateTime::parse_from_rfc3339(value.trim())
+        .map(|dt| dt.to_rfc3339())
+        .map_err(|_| {
+            format!(
+                "Invalid deadline '{}': expected an ISO-8601 date-time with a timezone",
+                value
+            )
+        })
+}
+
+pub fn normalize_content(value: &str) -> Result<String, String> {
+    let value = value.trim();
+    if value.is_empty() {
+        return Err("Task title cannot be empty".to_string());
+    }
+    if value.chars().count() > MAX_CONTENT_CHARS {
+        return Err(format!("Task title is longer than {} characters", MAX_CONTENT_CHARS));
+    }
+    Ok(value.to_string())
+}
+
+/// Lets a JSON field distinguish "absent" (`None`: leave unchanged) from
+/// `null` (`Some(None)`: clear it).
+fn double_option<'de, D, T>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Option::<T>::deserialize(deserializer).map(Some)
+}
+
+/// A partial update to a task. Absent fields are left unchanged; `deadline`
+/// and `original_text` can be cleared by sending `null`.
+#[derive(Debug, Default, Clone, Deserialize)]
+pub struct TaskPatch {
+    #[serde(default)]
+    pub content: Option<String>,
+    #[serde(default)]
+    pub priority: Option<String>,
+    #[serde(default)]
+    pub category: Option<String>,
+    #[serde(default, deserialize_with = "double_option")]
+    pub deadline: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
+    pub original_text: Option<Option<String>>,
+}
+
+impl TaskPatch {
+    /// Validates every field before changing anything, so a single bad field
+    /// leaves the task untouched.
+    pub fn apply_to(&self, task: &mut Task) -> Result<(), String> {
+        let content = self.content.as_deref().map(normalize_content).transpose()?;
+        let priority = match self.priority.as_deref() {
+            Some(p) => Some(normalize_priority(p).ok_or_else(|| format!("Invalid priority '{}'", p))?),
+            None => None,
+        };
+        let category = match self.category.as_deref() {
+            // Re-sending an existing (possibly legacy) category is not a change.
+            Some(c) if c == task.category => None,
+            Some(c) => Some(normalize_category(c).ok_or_else(|| format!("Invalid category '{}'", c))?),
+            None => None,
+        };
+        let deadline = match &self.deadline {
+            Some(Some(d)) if !d.trim().is_empty() => Some(Some(normalize_deadline(d)?)),
+            Some(_) => Some(None),
+            None => None,
+        };
+        let original_text = match &self.original_text {
+            Some(Some(t)) if !t.trim().is_empty() => Some(Some(t.clone())),
+            Some(_) => Some(None),
+            None => None,
+        };
+
+        if let Some(v) = content {
+            task.content = v;
+        }
+        if let Some(v) = priority {
+            task.priority = v;
+        }
+        if let Some(v) = category {
+            task.category = v;
+        }
+        if let Some(v) = deadline {
+            task.deadline = v;
+        }
+        if let Some(v) = original_text {
+            task.original_text = v;
+        }
+        Ok(())
+    }
 }
 
 /// Serialises every read-modify-write cycle on the task file. Tauri runs
@@ -197,29 +317,17 @@ fn toggle_task_at(path: &Path, task_id: &str) -> Result<bool, String> {
     Ok(new_state)
 }
 
-fn update_task_at(
-    path: &Path,
-    task_id: &str,
-    new_priority: Option<String>,
-    new_timestamp: Option<String>,
-) -> Result<(), String> {
+fn update_task_at(path: &Path, task_id: &str, patch: &TaskPatch) -> Result<Task, String> {
     let _guard = lock_db();
     let mut tasks = load_for_update(path)?;
-    let mut changed = false;
-    if let Some(t) = tasks.iter_mut().find(|t| t.id == task_id) {
-        if let Some(p) = new_priority {
-            t.priority = p;
-            changed = true;
-        }
-        if let Some(ts) = new_timestamp {
-            t.timestamp = ts;
-            changed = true;
-        }
-    }
-    if changed {
-        write_to(path, &tasks)?;
-    }
-    Ok(())
+    let task = tasks
+        .iter_mut()
+        .find(|t| t.id == task_id)
+        .ok_or_else(|| format!("Task {} not found", task_id))?;
+    patch.apply_to(task)?;
+    let updated = task.clone();
+    write_to(path, &tasks)?;
+    Ok(updated)
 }
 
 pub fn get_tasks() -> Result<Vec<Task>, String> {
@@ -238,12 +346,9 @@ pub fn toggle_task(task_id: &str) -> Result<bool, String> {
     toggle_task_at(&get_db_path(), task_id)
 }
 
-pub fn update_task(
-    task_id: &str,
-    new_priority: Option<String>,
-    new_timestamp: Option<String>,
-) -> Result<(), String> {
-    update_task_at(&get_db_path(), task_id, new_priority, new_timestamp)
+/// Applies a validated partial update and returns the saved task.
+pub fn update_task(task_id: &str, patch: &TaskPatch) -> Result<Task, String> {
+    update_task_at(&get_db_path(), task_id, patch)
 }
 
 #[cfg(test)]
@@ -376,5 +481,87 @@ mod tests {
             h.join().unwrap();
         }
         assert_eq!(get_tasks_at(&path).unwrap().len(), 8);
+    }
+
+    #[test]
+    fn patch_updates_fields_with_canonical_values() {
+        let path = temp_db("patch");
+        save_task_at(&path, task("a")).unwrap();
+        let patch = TaskPatch {
+            content: Some("  New title ".to_string()),
+            priority: Some("high".to_string()),
+            category: Some("finance".to_string()),
+            deadline: Some(Some("2026-12-01T17:00:00+05:30".to_string())),
+            original_text: None,
+        };
+        let updated = update_task_at(&path, "a", &patch).unwrap();
+        assert_eq!(updated.content, "New title");
+        assert_eq!(updated.priority, "High");
+        assert_eq!(updated.category, "Finance");
+        assert_eq!(updated.deadline.as_deref(), Some("2026-12-01T17:00:00+05:30"));
+        // Creation time is never touched by an update.
+        assert_eq!(updated.timestamp, "2026-01-01T00:00:00Z");
+        assert_eq!(get_tasks_at(&path).unwrap()[0].content, "New title");
+    }
+
+    #[test]
+    fn invalid_patch_changes_nothing() {
+        let path = temp_db("patch-invalid");
+        save_task_at(&path, task("a")).unwrap();
+        let bad = TaskPatch {
+            content: Some("Changed".to_string()),
+            priority: Some("Extreme".to_string()),
+            ..Default::default()
+        };
+        assert!(update_task_at(&path, "a", &bad).is_err());
+        let bad_deadline = TaskPatch {
+            deadline: Some(Some("Today at 5:00 PM".to_string())),
+            ..Default::default()
+        };
+        assert!(update_task_at(&path, "a", &bad_deadline).is_err());
+        assert_eq!(get_tasks_at(&path).unwrap()[0].content, "task a");
+        assert!(update_task_at(&path, "missing", &TaskPatch::default()).is_err());
+    }
+
+    #[test]
+    fn patch_clears_deadline_and_keeps_legacy_category() {
+        let path = temp_db("patch-clear");
+        let mut legacy = task("a");
+        legacy.category = "Engineering".to_string();
+        legacy.deadline = Some("2026-12-01T17:00:00+00:00".to_string());
+        save_task_at(&path, legacy).unwrap();
+
+        let patch = TaskPatch {
+            category: Some("Engineering".to_string()),
+            deadline: Some(None),
+            ..Default::default()
+        };
+        let updated = update_task_at(&path, "a", &patch).unwrap();
+        assert_eq!(updated.category, "Engineering");
+        assert_eq!(updated.deadline, None);
+    }
+
+    #[test]
+    fn patch_json_distinguishes_null_from_missing() {
+        let p: TaskPatch = serde_json::from_str(r#"{"deadline": null}"#).unwrap();
+        assert_eq!(p.deadline, Some(None));
+        assert_eq!(p.original_text, None);
+
+        let p: TaskPatch = serde_json::from_str(r#"{"deadline": "2026-01-01T00:00:00Z"}"#).unwrap();
+        assert_eq!(p.deadline, Some(Some("2026-01-01T00:00:00Z".to_string())));
+    }
+
+    #[test]
+    fn normalizers() {
+        assert_eq!(normalize_priority(" URGENT ").as_deref(), Some("Urgent"));
+        assert_eq!(normalize_priority("p1"), None);
+        assert_eq!(normalize_category("security").as_deref(), Some("Security"));
+        assert_eq!(normalize_category("Work"), None);
+        assert!(normalize_deadline("tomorrow").is_err());
+        assert_eq!(
+            normalize_deadline("2026-01-01T00:00:00Z").unwrap(),
+            "2026-01-01T00:00:00+00:00"
+        );
+        assert!(normalize_content("   ").is_err());
     }
 }
