@@ -34,7 +34,7 @@ describe('App', () => {
     render(<App />);
     await act(async () => {}); // let the background task/config loading settle
     expect(screen.getByText('Launch Live Dashboard')).toBeTruthy();
-    expect(screen.queryByText('quick capture')).toBeNull();
+    expect(screen.queryByText('Quick capture')).toBeNull();
   });
 
   it('lists tasks by deadline by default (regression: deadline sort was a no-op)', async () => {

@@ -1,93 +1,67 @@
 /** @type {import('tailwindcss').Config} */
 export default {
-  content: ["./index.html", "./src/**/*.{js,ts,jsx,tsx}"],
-  darkMode: "class",
+  content: ['./index.html', './src/**/*.{js,jsx}'],
+  darkMode: 'class',
   theme: {
     extend: {
       colors: {
-        border: "hsl(var(--border))",
-        input: "hsl(var(--input))",
-        ring: "hsl(var(--ring))",
-        background: "hsl(var(--background))",
-        foreground: "hsl(var(--foreground))",
-        primary: {
-          DEFAULT: "hsl(var(--primary))",
-          foreground: "hsl(var(--primary-foreground))",
+        // Neutral surfaces and text come from CSS variables in src/theme.css.
+        canvas: 'var(--canvas)',
+        surface: {
+          DEFAULT: 'var(--surface)',
+          2: 'var(--surface-2)',
+          3: 'var(--surface-3)',
         },
-        secondary: {
-          DEFAULT: "hsl(var(--secondary))",
-          foreground: "hsl(var(--secondary-foreground))",
+        line: {
+          DEFAULT: 'var(--line)',
+          strong: 'var(--line-strong)',
         },
-        destructive: {
-          DEFAULT: "hsl(var(--destructive))",
-          foreground: "hsl(var(--destructive-foreground))",
+        ink: {
+          DEFAULT: 'var(--ink)',
+          2: 'var(--ink-2)',
+          3: 'var(--ink-3)',
         },
-        muted: {
-          DEFAULT: "hsl(var(--muted))",
-          foreground: "hsl(var(--muted-foreground))",
+        // Brand and status colours are literal so opacity modifiers (bg-olive-300/10) work.
+        olive: {
+          50: '#f3f5e6',
+          100: '#e2e6c8',
+          200: '#ccd2a3',
+          300: '#b4bb82',
+          400: '#9ca267',
+          500: '#80874f',
+          600: '#656b3e',
+          700: '#4b502e',
+          800: '#33361f',
+          900: '#1f2113',
         },
-        accent: {
-          DEFAULT: "hsl(var(--accent))",
-          foreground: "hsl(var(--accent-foreground))",
-        },
-        popover: {
-          DEFAULT: "hsl(var(--popover))",
-          foreground: "hsl(var(--popover-foreground))",
-        },
-        card: {
-          DEFAULT: "hsl(var(--card))",
-          foreground: "hsl(var(--card-foreground))",
-        },
-        brand: {
-          50: "#eef2ff",
-          100: "#e0e7ff",
-          200: "#c7d2fe",
-          300: "#a5b4fc",
-          400: "#818cf8",
-          500: "#6366f1",
-          600: "#4f46e5",
-          700: "#4338ca",
-          800: "#3730a3",
-          900: "#312e81",
-          950: "#1e1b4b",
-        },
-      },
-      borderRadius: {
-        lg: "var(--radius)",
-        md: "calc(var(--radius) - 2px)",
-        sm: "calc(var(--radius) - 4px)",
+        danger: '#f07e6e',
+        warning: '#e6b45c',
+        success: '#82c98d',
+        info: '#8fb4e6',
       },
       fontFamily: {
-        sans: ["Inter", "-apple-system", "BlinkMacSystemFont", "Segoe UI", "Roboto", "sans-serif"],
-        mono: ["JetBrains Mono", "Fira Code", "Consolas", "monospace"],
+        sans: ['"Geist Variable"', 'ui-sans-serif', 'system-ui', '-apple-system', '"Segoe UI"', 'sans-serif'],
+        mono: ['"Geist Mono Variable"', 'ui-monospace', '"Cascadia Code"', 'Consolas', 'monospace'],
+        display: ['"Instrument Serif"', 'ui-serif', 'Georgia', 'serif'],
       },
       boxShadow: {
-        glass: "0 8px 32px 0 rgba(0, 0, 0, 0.37)",
-        glow: "0 0 25px -5px rgba(99, 102, 241, 0.4)",
-        "glow-rose": "0 0 25px -5px rgba(244, 63, 94, 0.4)",
-      },
-      animation: {
-        "fade-in": "fadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1)",
-        "slide-down": "slideDown 0.3s cubic-bezier(0.16, 1, 0.3, 1)",
-        "pulse-subtle": "pulseSubtle 2s infinite ease-in-out",
+        card: '0 1px 0 0 rgba(255,255,255,0.035) inset, 0 1px 2px rgba(0,0,0,0.4)',
+        pop: '0 0 0 1px rgba(0,0,0,0.5), 0 24px 64px -16px rgba(0,0,0,0.85), 0 1px 0 0 rgba(255,255,255,0.05) inset',
+        glow: '0 1px 0 0 rgba(255,255,255,0.35) inset, 0 10px 30px -10px rgba(180,187,130,0.55)',
       },
       keyframes: {
-        fadeIn: {
-          "0%": { opacity: "0", transform: "translateY(4px)" },
-          "100%": { opacity: "1", transform: "translateY(0)" },
+        drift: {
+          '0%, 100%': { transform: 'translate3d(-50%, 0, 0) scale(1)' },
+          '50%': { transform: 'translate3d(-48%, 3%, 0) scale(1.06)' },
         },
-        slideDown: {
-          "0%": { opacity: "0", transform: "translateY(-12px)" },
-          "100%": { opacity: "1", transform: "translateY(0)" },
-        },
-        pulseSubtle: {
-          "0%, 100%": { opacity: "1" },
-          "50%": { opacity: "0.65" },
-        },
+      },
+      animation: {
+        drift: 'drift 28s ease-in-out infinite',
       },
     },
   },
   plugins: [
     require('@tailwindcss/typography'), // `prose` styles for Markdown replies in MorningStandupModal
+    require('tailwindcss-animate'), // animate-in / fade-in / zoom-in-95 for dialogs and toasts
   ],
 };

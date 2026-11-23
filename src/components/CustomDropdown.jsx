@@ -1,69 +1,77 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { ChevronDown, Check } from 'lucide-react';
+import React, { useEffect, useId, useRef, useState } from 'react';
+import { Check, ChevronDown } from 'lucide-react';
 
+/** Compact filter menu used in the dashboard toolbar. */
 export function CustomDropdown({ value, options, onChange, icon: Icon }) {
   const [isOpen, setIsOpen] = useState(false);
-  const dropdownRef = useRef(null);
+  const rootRef = useRef(null);
+  const listId = useId();
 
   useEffect(() => {
-    const handleClickOutside = (event) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
-        setIsOpen(false);
-      }
+    if (!isOpen) return undefined;
+    const onPointer = (e) => {
+      if (rootRef.current && !rootRef.current.contains(e.target)) setIsOpen(false);
     };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
+    const onKey = (e) => {
+      if (e.key === 'Escape') setIsOpen(false);
+    };
+    document.addEventListener('mousedown', onPointer);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onPointer);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [isOpen]);
 
-  const selectedOption = options.find((opt) => opt.value === value) || options[0];
+  const selected = options.find((o) => o.value === value) || options[0];
 
   return (
-    <div className="relative" ref={dropdownRef}>
+    <div className="relative" ref={rootRef}>
       <button
-        onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center gap-2 text-xs text-[var(--text-secondary)] bg-[rgba(10,11,8,0.5)] border border-[rgba(168,173,122,0.15)] hover:border-[rgba(168,173,122,0.3)] hover:text-[#f2f2ec] py-1.5 px-3 rounded-full outline-none cursor-pointer transition-all min-w-[120px] justify-between shadow-sm"
+        type="button"
+        onClick={() => setIsOpen((o) => !o)}
+        aria-haspopup="listbox"
+        aria-expanded={isOpen}
+        aria-controls={listId}
+        className={`inline-flex h-9 items-center gap-2 rounded-[10px] border px-3 text-[13px] font-medium transition ${
+          isOpen || value !== options[0].value
+            ? 'border-olive-300/30 bg-olive-300/[0.07] text-ink'
+            : 'border-line-strong bg-surface text-ink-2 hover:text-ink'
+        }`}
       >
-        <div className="flex items-center gap-1.5">
-          {Icon && <Icon className="w-3.5 h-3.5" />}
-          <span>{selectedOption.label}</span>
-        </div>
-        <ChevronDown className="w-3 h-3 text-[var(--text-dim)]" />
+        {Icon && <Icon className="h-3.5 w-3.5 text-ink-3" />}
+        <span>{selected.label}</span>
+        <ChevronDown className={`h-3.5 w-3.5 text-ink-3 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
       </button>
 
       {isOpen && (
-        <div className="absolute top-full mt-1.5 w-44 bg-[rgba(15,16,12,0.95)] border border-[rgba(168,173,122,0.2)] rounded-xl shadow-2xl overflow-hidden z-50 backdrop-blur-xl animate-in fade-in zoom-in-95 duration-100 py-1">
-          {options.map((opt) => (
-            <button
-              key={opt.value}
-              onClick={() => {
-                onChange(opt.value);
-                setIsOpen(false);
-              }}
-              className="w-full text-left flex items-center justify-between px-3.5 py-2.5 text-[13px] hover:bg-[rgba(168,173,122,0.1)] transition-colors group"
-            >
-              <div className="flex items-center gap-2.5">
-                {opt.icon && (
-                  <opt.icon
-                    className={`w-3.5 h-3.5 ${
-                      value === opt.value
-                        ? 'text-[var(--olive-300)]'
-                        : 'text-[var(--text-dim)] group-hover:text-[var(--text-secondary)]'
-                    }`}
-                  />
-                )}
-                <span
-                  className={
-                    value === opt.value
-                      ? 'text-[#f2f2ec] font-bold'
-                      : 'text-[var(--text-secondary)] font-medium group-hover:text-[#f2f2ec]'
-                  }
-                >
-                  {opt.label}
-                </span>
-              </div>
-              {value === opt.value && <Check className="w-3.5 h-3.5 text-[var(--olive-500)]" />}
-            </button>
-          ))}
+        <div
+          id={listId}
+          role="listbox"
+          className="absolute right-0 z-30 mt-1.5 min-w-[190px] overflow-hidden rounded-xl border border-line-strong bg-surface-2 p-1 shadow-pop animate-in fade-in zoom-in-95 duration-100"
+        >
+          {options.map((opt) => {
+            const active = value === opt.value;
+            return (
+              <button
+                key={opt.value}
+                type="button"
+                role="option"
+                aria-selected={active}
+                onClick={() => {
+                  onChange(opt.value);
+                  setIsOpen(false);
+                }}
+                className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13px] transition ${
+                  active ? 'bg-white/[0.06] text-ink' : 'text-ink-2 hover:bg-white/[0.04] hover:text-ink'
+                }`}
+              >
+                {opt.icon && <opt.icon className={`h-3.5 w-3.5 ${active ? 'text-olive-300' : 'text-ink-3'}`} />}
+                <span className="flex-1">{opt.label}</span>
+                {active && <Check className="h-3.5 w-3.5 text-olive-300" />}
+              </button>
+            );
+          })}
         </div>
       )}
     </div>

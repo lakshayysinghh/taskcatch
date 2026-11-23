@@ -1,4 +1,5 @@
 import React from 'react';
+import { Button } from './ui/Button';
 
 /**
  * Catches render errors anywhere below it so one broken component shows a
@@ -24,31 +25,22 @@ export class ErrorBoundary extends React.Component {
     if (!error) return this.props.children;
 
     return (
-      <div
-        role="alert"
-        className="min-h-screen flex items-center justify-center p-6 bg-[#0a0b08] text-[#e4e4de]"
-      >
-        <div className="w-full max-w-md rounded-2xl border border-[rgba(239,68,68,0.3)] bg-[rgba(19,20,16,0.95)] p-6 space-y-4">
-          <h1 className="text-lg font-bold text-[#f2f2ec]">Something went wrong</h1>
-          <p className="text-sm text-[#a5a99a]">
+      <div role="alert" className="flex min-h-screen items-center justify-center bg-canvas p-6 text-ink">
+        <div className="w-full max-w-md space-y-4 rounded-2xl border border-danger/25 bg-surface p-6 shadow-pop">
+          <h1 className="text-[17px] font-semibold tracking-[-0.01em] text-ink">Something went wrong</h1>
+          <p className="text-[13.5px] leading-relaxed text-ink-2">
             TaskCatch hit an unexpected error. Your saved tasks are not affected.
           </p>
-          <pre className="text-xs font-mono text-[#ff9b9b] bg-[rgba(0,0,0,0.35)] rounded-lg p-3 whitespace-pre-wrap break-words max-h-40 overflow-auto">
+          <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-line bg-black/30 p-3 font-mono text-[12px] text-danger">
             {String(error?.message || error)}
           </pre>
-          <div className="flex gap-2 justify-end">
-            <button
-              onClick={() => this.setState({ error: null })}
-              className="px-4 py-2 text-xs font-medium rounded-lg border border-[rgba(168,173,122,0.3)] text-[#d5d6cd] hover:bg-[rgba(168,173,122,0.1)]"
-            >
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" onClick={() => this.setState({ error: null })}>
               Try again
-            </button>
-            <button
-              onClick={() => window.location.reload()}
-              className="px-4 py-2 text-xs font-semibold rounded-lg text-[#0b0c0a] bg-[#a8ad7a] hover:opacity-90"
-            >
+            </Button>
+            <Button variant="primary" onClick={() => window.location.reload()}>
               Reload
-            </button>
+            </Button>
           </div>
         </div>
       </div>

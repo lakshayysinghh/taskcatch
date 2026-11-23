@@ -1,8 +1,10 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { safeInvoke as invoke } from '../lib/tauri';
-import { X, Sun, Zap, Bot, User, Send, ArrowRight, Loader2, CheckCircle } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
+import { ArrowUp, CheckCircle, Loader2, Sun, Zap } from 'lucide-react';
+import { safeInvoke as invoke } from '../lib/tauri';
 import { isDueToday, isOverdue } from '../lib/taskMeta';
+import { Modal } from './ui/Modal';
+import { LogoMark } from './ui/LogoMark';
 
 /** One line per applied change, e.g. "Deploy hotfix: due Thu, Nov 26, 9:00 AM · priority Urgent". */
 function describeMutation(m) {
@@ -19,6 +21,24 @@ function describeMutation(m) {
   return `${m.task_title || 'Task'}: ${parts.join(' · ') || 'updated'}`;
 }
 
+function greeting() {
+  const hour = new Date().getHours();
+  if (hour < 12) return 'Good morning';
+  if (hour < 17) return 'Good afternoon';
+  return 'Good evening';
+}
+
+const clock = () => new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+
+function Stat({ label, value, tone }) {
+  return (
+    <div className="px-5 py-3.5">
+      <div className="text-[11.5px] font-medium uppercase tracking-[0.08em] text-ink-3">{label}</div>
+      <div className={`mt-1 text-[24px] font-semibold leading-none tracking-[-0.03em] tabular-nums ${tone}`}>{value}</div>
+    </div>
+  );
+}
+
 export function MorningStandupModal({ isOpen, onClose, tasks, onClearCompleted, onRefreshTasks }) {
   const [messages, setMessages] = useState([]);
   const [inputValue, setInputValue] = useState('');
@@ -27,300 +47,194 @@ export function MorningStandupModal({ isOpen, onClose, tasks, onClearCompleted, 
 
   // Counts use each task's deadline, never its capture time.
   const now = new Date();
-  const activeTasks = tasks.filter((t) => !t.completed);
   const overdueCount = tasks.filter((t) => isOverdue(t, now)).length;
   const dueTodayCount = tasks.filter((t) => isDueToday(t, now)).length;
-  const highUrgentTasks = activeTasks.filter(t => t.priority === 'High' || t.priority === 'Urgent');
-  const highUrgentCount = highUrgentTasks.length;
+  const highUrgentCount = tasks.filter((t) => !t.completed && (t.priority === 'High' || t.priority === 'Urgent')).length;
 
-  const getGreeting = () => {
-    const hour = new Date().getHours();
-    if (hour < 12) return 'Good morning';
-    if (hour < 17) return 'Good afternoon';
-    return 'Good evening';
-  };
-
-  // Reset state when modal opens
   useEffect(() => {
     if (isOpen) {
       setInputValue('');
       setIsTyping(false);
-      setMessages([{
-        id: 'initial',
-        role: 'bot',
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        content: `${getGreeting()}! Here is your executive standup briefing for today:
+      setMessages([
+        {
+          id: 'initial',
+          role: 'bot',
+          timestamp: clock(),
+          content: `${greeting()}! Here's where things stand:
 
-- **${highUrgentCount} High/Urgent priority item(s)** on your radar.
-${overdueCount > 0 ? `- **${overdueCount} Overdue item(s)** require attention.` : ''}
+- **${highUrgentCount}** high or urgent ${highUrgentCount === 1 ? 'task' : 'tasks'} open
+- **${dueTodayCount}** due later today${overdueCount > 0 ? `\n- **${overdueCount}** past due` : ''}
 
-Would you like me to reschedule the overdue tasks, give you a summary, or curate your top 3 focus priorities for today?`,
-        suggestedActions: [
-          { label: 'What should I focus on first?', prompt: 'What should I focus on first today?' },
-          ...(overdueCount > 0 ? [{ label: 'Push overdue to tomorrow', prompt: 'Push all overdue tasks to tomorrow' }] : []),
-          { label: 'Clear completed tasks', action: 'clear' }
-        ]
-      }]);
+Ask me what to focus on, or to reschedule and reprioritise tasks.`,
+          suggestedActions: [
+            { label: 'What should I focus on first?', prompt: 'What should I focus on first today?' },
+            ...(overdueCount > 0 ? [{ label: 'Push overdue to tomorrow', prompt: 'Push all overdue tasks to tomorrow at 9 AM' }] : []),
+            { label: 'Clear completed tasks', action: 'clear' },
+          ],
+        },
+      ]);
     }
     // Only reset when the modal opens. Counts change as the assistant edits
     // tasks; re-running then would wipe the conversation mid-chat.
   }, [isOpen]);
 
   useEffect(() => {
-    if (isOpen && chatEndRef.current) {
-      chatEndRef.current.scrollIntoView({ behavior: 'smooth' });
-    }
+    if (isOpen) chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isTyping, isOpen]);
+
+  const addBotMessage = (content, extra = {}) =>
+    setMessages((prev) => [...prev, { id: `${Date.now()}-bot`, role: 'bot', timestamp: clock(), content, ...extra }]);
 
   const handleSendPrompt = async (promptText) => {
     if (!promptText.trim()) return;
-
-    // Add user message
-    const newUserMsg = {
-      id: Date.now().toString(),
-      role: 'user',
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      content: promptText
-    };
-    
-    setMessages(prev => [...prev, newUserMsg]);
+    setMessages((prev) => [...prev, { id: `${Date.now()}-user`, role: 'user', timestamp: clock(), content: promptText }]);
     setIsTyping(true);
 
     try {
       const response = await invoke('chat_with_standup_ai', { prompt: promptText });
-      
-      const newBotMsg = {
-        id: (Date.now() + 1).toString(),
-        role: 'bot',
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        content: response.reply,
-        mutations: response.mutations
-      };
-
-      setMessages(prev => [...prev, newBotMsg]);
-
-      // If AI mutated tasks, trigger a fresh fetch in App.jsx
-      if (response.mutations && response.mutations.length > 0) {
-        if (onRefreshTasks) {
-          onRefreshTasks();
-        }
-      }
-
+      addBotMessage(response.reply, { mutations: response.mutations });
+      // The assistant changed tasks: refresh the list in App.
+      if (response.mutations?.length > 0) onRefreshTasks?.();
     } catch (err) {
       console.error(err);
-      let errorMsg = err.toString();
+      let errorMsg = String(err);
       if (errorMsg.includes('Groq API key is not configured')) {
-        errorMsg = "⚠️ Your Groq API key is not configured. Please open Settings (Ctrl+,) to set it up before chatting.";
+        errorMsg = 'Your Groq API key is not configured. Please open Settings (Ctrl+,) to add one before chatting.';
       }
-      
-      setMessages(prev => [...prev, {
-        id: (Date.now() + 1).toString(),
-        role: 'bot',
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        content: errorMsg,
-        isError: true
-      }]);
+      addBotMessage(errorMsg, { isError: true });
     } finally {
       setIsTyping(false);
     }
   };
 
+  const clearCompleted = () => {
+    onClearCompleted();
+    addBotMessage('Completed tasks cleared.');
+  };
+
   const handleInputSubmit = (e) => {
     e.preventDefault();
     if (!inputValue.trim() || isTyping) return;
-    
-    // Quick intercept for local specific actions if needed
-    if (inputValue.toLowerCase() === 'clear completed') {
-      onClearCompleted();
+    if (inputValue.trim().toLowerCase() === 'clear completed') {
       setInputValue('');
-      setMessages(prev => [...prev, {
-        id: Date.now().toString(),
-        role: 'bot',
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        content: "I have cleared all completed tasks from your dashboard locally."
-      }]);
+      clearCompleted();
       return;
     }
-
     const text = inputValue;
     setInputValue('');
     handleSendPrompt(text);
   };
 
-  if (!isOpen) return null;
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-150">
-      <div className="bg-[var(--surface-glass-modal)] border border-[var(--border-subtle)] rounded-2xl w-full max-w-[700px] h-[85vh] max-h-[800px] flex flex-col shadow-2xl relative text-[#e4e6db] overflow-hidden">
-        
-        {/* Header */}
-        <div className="flex items-center justify-between p-5 border-b border-[var(--border-subtle)] shrink-0 bg-[rgba(10,11,8,0.7)]">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[rgba(168,173,122,0.1)] to-[rgba(168,173,122,0.02)] border border-[var(--border-subtle)] flex items-center justify-center shadow-inner">
-              <Zap className="w-5 h-5 text-[var(--olive-300)]" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h2 className="text-[16px] font-bold text-[#f2f2ec]">The Morning Standup Bot</h2>
-                <span className="text-[10px] font-medium px-2 py-0.5 rounded-full border border-[var(--border-subtle)] text-[var(--olive-300)] bg-[rgba(168,173,122,0.1)] flex items-center gap-1">
-                  <Sun className="w-3 h-3" /> Executive AI
-                </span>
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      icon={Sun}
+      title="Morning standup"
+      description="Your assistant for today's priorities."
+      size="lg"
+      panelClassName="h-[min(780px,calc(100vh-2rem))]"
+      bodyClassName="flex flex-col overflow-hidden p-0"
+    >
+      <div className="grid shrink-0 grid-cols-3 divide-x divide-line border-b border-line bg-black/20">
+        <Stat label="Overdue" value={overdueCount} tone={overdueCount > 0 ? 'text-danger' : 'text-ink'} />
+        <Stat label="Due today" value={dueTodayCount} tone="text-ink" />
+        <Stat label="High / urgent" value={highUrgentCount} tone={highUrgentCount > 0 ? 'text-warning' : 'text-ink'} />
+      </div>
+
+      <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-6 py-6">
+        {messages.map((msg) =>
+          msg.role === 'user' ? (
+            <div key={msg.id} className="flex justify-end animate-in fade-in slide-in-from-bottom-1 duration-200">
+              <div className="max-w-[80%] rounded-2xl rounded-br-md border border-olive-300/20 bg-olive-300/10 px-4 py-2.5 text-[14px] leading-relaxed text-ink">
+                {msg.content}
+                <div className="mt-1 text-right text-[10.5px] text-olive-400">{msg.timestamp}</div>
               </div>
-              <p className="text-[12px] text-[var(--text-secondary)] mt-0.5">Your daily executive assistant & day prioritizer</p>
             </div>
-          </div>
-          <button
-            onClick={onClose}
-            className="text-[var(--text-secondary)] hover:text-[#f2f2ec] p-2 rounded-lg hover:bg-[rgba(168,173,122,0.1)] transition-colors"
-          >
-            <X className="w-5 h-5" />
-          </button>
-        </div>
-
-        {/* Stats Row */}
-        <div className="grid grid-cols-3 border-b border-[var(--border-subtle)] shrink-0 bg-[rgba(10,11,8,0.5)]">
-          <div className="py-4 text-center border-r border-[var(--border-subtle)] flex flex-col items-center justify-center">
-            <div className="text-[10px] font-bold text-[var(--text-secondary)] tracking-widest uppercase mb-1">Overdue</div>
-            <div className={`text-2xl font-bold ${overdueCount > 0 ? 'text-[#ff7b7b]' : 'text-[var(--olive-500)]'}`}>{overdueCount}</div>
-          </div>
-          <div className="py-4 text-center border-r border-[var(--border-subtle)] flex flex-col items-center justify-center">
-            <div className="text-[10px] font-bold text-[var(--text-secondary)] tracking-widest uppercase mb-1">Due Today</div>
-            <div className="text-2xl font-bold text-[#f2f2ec]">{dueTodayCount}</div>
-          </div>
-          <div className="py-4 text-center flex flex-col items-center justify-center">
-            <div className="text-[10px] font-bold text-[var(--text-secondary)] tracking-widest uppercase mb-1">High / Urgent</div>
-            <div className={`text-2xl font-bold ${highUrgentCount > 0 ? 'text-[#e6c17a]' : 'text-[var(--olive-500)]'}`}>{highUrgentCount}</div>
-          </div>
-        </div>
-
-        {/* Chat Area */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-6 bg-[#0a0b08] scrollbar-hide">
-          
-          {messages.map((msg) => (
-            <div key={msg.id} className={`flex items-start gap-4 max-w-[95%] ${msg.role === 'user' ? 'justify-end max-w-[80%] ml-auto' : ''}`}>
-              
-              {/* Bot Avatar */}
-              {msg.role === 'bot' && (
-                <div className="w-8 h-8 rounded-full bg-[rgba(168,173,122,0.15)] border border-[var(--olive-500)] flex items-center justify-center shrink-0 mt-1">
-                  <Bot className="w-4 h-4 text-[var(--olive-100)]" />
-                </div>
-              )}
-
-              {/* Message Bubble */}
-              <div className={`flex-1 rounded-2xl p-4 text-[14px] shadow-sm relative ${
-                msg.role === 'user' 
-                  ? 'bg-[rgba(168,173,122,0.1)] border border-[rgba(168,173,122,0.25)] rounded-tr-sm text-[#f2f2ec]' 
-                  : 'bg-[rgba(19,20,16,0.6)] border border-[var(--border-subtle)] rounded-tl-sm text-[#d4d5cc]'
-              } ${msg.isError ? 'border-[rgba(239,68,68,0.3)] bg-[rgba(239,68,68,0.05)] text-[#ff7b7b]' : ''}`}>
-                
-                {msg.role === 'bot' ? (
-                  <div className="prose prose-invert prose-sm max-w-none prose-p:leading-relaxed prose-pre:bg-[rgba(0,0,0,0.3)] prose-pre:border-none prose-li:my-1 text-[#e4e4de]">
+          ) : (
+            <div key={msg.id} className="flex gap-3 animate-in fade-in slide-in-from-bottom-1 duration-200">
+              <LogoMark size={28} className="mt-0.5 shrink-0" />
+              <div className="min-w-0 max-w-[88%] flex-1">
+                <div
+                  className={`rounded-2xl rounded-tl-md border px-4 py-3 text-[14px] ${
+                    msg.isError ? 'border-danger/25 bg-danger/[0.07] text-[#f6c3bb]' : 'border-line bg-surface-2 text-ink'
+                  }`}
+                >
+                  <div className="prose prose-invert prose-sm max-w-none leading-relaxed prose-p:my-1.5 prose-ul:my-1.5 prose-li:my-0.5 prose-strong:text-ink">
                     <ReactMarkdown>{msg.content}</ReactMarkdown>
                   </div>
-                ) : (
-                  msg.content
-                )}
 
-                {/* Optional Mutations Display */}
-                {msg.mutations && msg.mutations.length > 0 && (
-                  <div className="mt-4 pt-3 border-t border-[rgba(255,255,255,0.05)]">
-                    <div className="text-[10px] text-[var(--olive-500)] uppercase tracking-wider mb-2 font-bold">Applied Changes</div>
-                    <ul className="space-y-1">
-                      {msg.mutations.map((m, i) => (
-                        <li key={i} className="text-[12px] text-[var(--text-secondary)] flex items-center gap-1.5">
-                          <CheckCircle className="w-3 h-3 text-[var(--olive-500)] shrink-0" />
-                          <span>{describeMutation(m)}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
+                  {msg.mutations?.length > 0 && (
+                    <div className="mt-3 border-t border-line pt-3">
+                      <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-olive-300">Applied Changes</div>
+                      <ul className="space-y-1">
+                        {msg.mutations.map((m, i) => (
+                          <li key={i} className="flex items-start gap-1.5 text-[12.5px] text-ink-2">
+                            <CheckCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-olive-300" />
+                            <span>{describeMutation(m)}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
 
-                {/* Suggested Actions (only for initial or specific bot messages) */}
                 {msg.suggestedActions && (
-                  <div className="flex flex-wrap items-center gap-2 mt-4">
-                    {msg.suggestedActions.map((action, i) => (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {msg.suggestedActions.map((action) => (
                       <button
-                        key={i}
-                        onClick={() => {
-                          if (action.action === 'clear') {
-                            onClearCompleted();
-                            setMessages(prev => [...prev, {
-                              id: Date.now().toString(),
-                              role: 'bot',
-                              timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                              content: "Completed tasks cleared."
-                            }]);
-                          } else {
-                            handleSendPrompt(action.prompt);
-                          }
-                        }}
+                        key={action.label}
+                        type="button"
                         disabled={isTyping}
-                        className="px-3.5 py-2 text-[12px] font-medium rounded-xl border border-[rgba(168,173,122,0.3)] bg-[rgba(168,173,122,0.08)] hover:bg-[rgba(168,173,122,0.15)] text-[var(--olive-100)] transition-all flex items-center gap-1.5 disabled:opacity-50"
+                        onClick={() => (action.action === 'clear' ? clearCompleted() : handleSendPrompt(action.prompt))}
+                        className="inline-flex items-center gap-1.5 rounded-full border border-line-strong bg-white/[0.02] px-3 py-1.5 text-[12.5px] text-ink-2 transition hover:border-olive-300/30 hover:text-ink disabled:opacity-50"
                       >
-                        <Zap className="w-3.5 h-3.5 text-[#e6c17a]" /> {action.label} <ArrowRight className="w-3 h-3 ml-1" />
+                        <Zap className="h-3 w-3 text-olive-300" />
+                        {action.label}
                       </button>
                     ))}
                   </div>
                 )}
-
-                <div className={`text-[10px] mt-2 ${msg.role === 'user' ? 'text-right text-[var(--olive-500)]' : 'text-left text-[var(--text-dim)]'}`}>
-                  {msg.timestamp}
-                </div>
-              </div>
-
-              {/* User Avatar */}
-              {msg.role === 'user' && (
-                <div className="w-8 h-8 rounded-full bg-[rgba(255,255,255,0.05)] border border-[var(--border-subtle)] flex items-center justify-center shrink-0 mt-1">
-                  <User className="w-4 h-4 text-[var(--text-secondary)]" />
-                </div>
-              )}
-            </div>
-          ))}
-
-          {/* Typing Indicator */}
-          {isTyping && (
-            <div className="flex items-start gap-4 max-w-[95%] animate-in fade-in">
-              <div className="w-8 h-8 rounded-full bg-[rgba(168,173,122,0.15)] border border-[var(--olive-500)] flex items-center justify-center shrink-0 mt-1">
-                <Loader2 className="w-4 h-4 text-[var(--olive-300)] animate-spin" />
-              </div>
-              <div className="bg-[rgba(19,20,16,0.6)] border border-[var(--border-subtle)] rounded-2xl rounded-tl-sm p-4 text-[14px] text-[var(--text-secondary)] shadow-sm flex items-center gap-2">
-                <div className="flex gap-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-[var(--text-dim)] animate-bounce" style={{ animationDelay: '0ms' }} />
-                  <span className="w-1.5 h-1.5 rounded-full bg-[var(--text-dim)] animate-bounce" style={{ animationDelay: '150ms' }} />
-                  <span className="w-1.5 h-1.5 rounded-full bg-[var(--text-dim)] animate-bounce" style={{ animationDelay: '300ms' }} />
-                </div>
-                Thinking...
+                <div className="mt-1.5 text-[10.5px] text-ink-3">{msg.timestamp}</div>
               </div>
             </div>
-          )}
+          )
+        )}
 
-          <div ref={chatEndRef} className="h-2" />
-        </div>
-
-        {/* Input Footer */}
-        <div className="p-4 border-t border-[var(--border-subtle)] bg-[rgba(10,11,8,0.8)] shrink-0">
-          <form onSubmit={handleInputSubmit} className="relative">
-            <input
-              type="text"
-              value={inputValue}
-              onChange={(e) => setInputValue(e.target.value)}
-              disabled={isTyping}
-              placeholder="Ask your assistant (e.g. 'Push overdue to tomorrow' or 'What is my lowest priority?')"
-              className="w-full bg-[rgba(255,255,255,0.02)] border border-[var(--border-subtle)] focus:border-[var(--olive-500)] text-[13px] text-[#f2f2ec] rounded-xl pl-4 pr-12 py-3.5 outline-none transition-all placeholder:text-[var(--text-placeholder)] shadow-inner disabled:opacity-50"
-            />
-            <button
-              type="submit"
-              disabled={!inputValue.trim() || isTyping}
-              className="absolute right-2 top-1/2 -translate-y-1/2 p-2 bg-[rgba(168,173,122,0.1)] hover:bg-[rgba(168,173,122,0.2)] text-[var(--olive-300)] rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed border border-transparent hover:border-[rgba(168,173,122,0.3)]"
-              style={{ background: 'linear-gradient(135deg, rgba(35,37,28,0.5), rgba(10,11,8,0.8))' }}
-            >
-              <Send className="w-4 h-4" />
-            </button>
-          </form>
-        </div>
-
+        {isTyping && (
+          <div className="flex items-center gap-3 animate-in fade-in duration-200">
+            <LogoMark size={28} className="shrink-0" />
+            <div className="inline-flex items-center gap-2 rounded-2xl rounded-tl-md border border-line bg-surface-2 px-4 py-2.5 text-[13px] text-ink-3">
+              <Loader2 className="h-3.5 w-3.5 animate-spin text-olive-300" />
+              Thinking…
+            </div>
+          </div>
+        )}
+        <div ref={chatEndRef} />
       </div>
-    </div>
+
+      <form onSubmit={handleInputSubmit} className="shrink-0 border-t border-line bg-black/20 p-4">
+        <div className="relative">
+          <input
+            data-autofocus
+            type="text"
+            value={inputValue}
+            onChange={(e) => setInputValue(e.target.value)}
+            disabled={isTyping}
+            placeholder="Ask your assistant — e.g. “push overdue to tomorrow” or “what's my lowest priority?”"
+            aria-label="Message the standup assistant"
+            className="h-12 w-full rounded-xl border border-line-strong bg-surface pl-4 pr-14 text-[14px] text-ink outline-none transition placeholder:text-ink-3 focus:border-olive-300/40 focus:ring-4 focus:ring-olive-300/10 disabled:opacity-60"
+          />
+          <button
+            type="submit"
+            disabled={!inputValue.trim() || isTyping}
+            aria-label="Send"
+            className="absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-lg bg-gradient-to-b from-olive-100 to-olive-300 text-[#15160f] transition disabled:from-white/10 disabled:to-white/5 disabled:text-ink-3"
+          >
+            <ArrowUp className="h-4 w-4" strokeWidth={2.4} />
+          </button>
+        </div>
+      </form>
+    </Modal>
   );
 }

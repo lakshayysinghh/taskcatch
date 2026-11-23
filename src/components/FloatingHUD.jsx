@@ -1,52 +1,53 @@
-import React, { useEffect } from 'react';
-import { Sparkles, RotateCcw, Edit2, X } from 'lucide-react';
+import React, { useEffect, useRef } from 'react';
+import { Check, RotateCcw, Pencil, X } from 'lucide-react';
 
+/** Toast shown after a capture, with Undo and Edit. Auto-dismisses after 8 s. */
 export function FloatingHUD({ task, onUndo, onEdit, onClose }) {
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
+  // Restart the timer only when a new task arrives, not on every parent render.
   useEffect(() => {
-    const timer = setTimeout(() => {
-      onClose();
-    }, 8000);
+    const timer = setTimeout(() => onCloseRef.current(), 8000);
     return () => clearTimeout(timer);
-  }, [task, onClose]);
+  }, [task?.id]);
 
   if (!task) return null;
 
   return (
-    <div className="fixed top-5 left-1/2 -translate-x-1/2 z-50 animate-in fade-in slide-in-from-top-4 duration-300">
-      <div className="bg-[rgba(15,16,12,0.96)] border border-[rgba(168,173,122,0.3)] backdrop-blur-[20px] shadow-[0_10px_40px_rgba(0,0,0,0.7)] rounded-full px-4 py-2.5 flex items-center gap-3 text-xs text-[#f2f2ec]">
-        {/* Pulsing Green Status Dot */}
-        <div className="flex items-center gap-2">
-          <span className="w-2 h-2 rounded-full bg-[#6ec97a] shadow-[0_0_8px_#6ec97a] animate-pulse shrink-0" />
-          <span className="text-[var(--olive-100)] font-medium max-w-[200px] sm:max-w-[320px] truncate">
-            {task.content}
-          </span>
+    <div className="fixed inset-x-0 bottom-6 z-50 flex justify-center px-4" role="status" aria-live="polite">
+      <div className="flex max-w-full items-center gap-3 rounded-2xl border border-line-strong bg-[#161714]/95 py-2 pl-2.5 pr-2 shadow-pop backdrop-blur-xl animate-in fade-in slide-in-from-bottom-4 duration-300">
+        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-success/15 text-success">
+          <Check className="h-4 w-4" strokeWidth={2.5} />
+        </span>
+        <div className="min-w-0">
+          <div className="text-[11px] font-medium uppercase tracking-[0.08em] text-ink-3">Captured</div>
+          <div className="max-w-[240px] truncate text-[13px] font-medium text-ink sm:max-w-[360px]">{task.content}</div>
         </div>
-
-        <div className="h-3 w-[1px] bg-[rgba(168,173,122,0.2)]" />
-
-        {/* Action Controls */}
-        <div className="flex items-center gap-1.5">
+        <div className="ml-1 flex items-center gap-0.5 border-l border-line pl-2">
           <button
+            type="button"
             onClick={() => onUndo(task.id)}
-            className="flex items-center gap-1 text-[var(--olive-300)] hover:text-[var(--olive-100)] px-2 py-1 rounded-md hover:bg-[rgba(168,173,122,0.1)] transition-colors font-medium"
+            className="flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-[12.5px] font-medium text-olive-200 transition hover:bg-white/[0.06]"
           >
-            <RotateCcw className="w-3 h-3" />
-            <span>Undo</span>
+            <RotateCcw className="h-3.5 w-3.5" />
+            Undo
           </button>
-
           <button
+            type="button"
             onClick={() => onEdit(task)}
-            className="flex items-center gap-1 text-[var(--text-secondary)] hover:text-[#f2f2ec] px-2 py-1 rounded-md hover:bg-[rgba(168,173,122,0.1)] transition-colors"
+            className="flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-[12.5px] font-medium text-ink-2 transition hover:bg-white/[0.06] hover:text-ink"
           >
-            <Edit2 className="w-3 h-3" />
-            <span>Edit</span>
+            <Pencil className="h-3.5 w-3.5" />
+            Edit
           </button>
-
           <button
+            type="button"
             onClick={onClose}
-            className="text-[var(--text-secondary)] hover:text-[#f2f2ec] p-1 rounded-md hover:bg-[rgba(168,173,122,0.1)] transition-colors ml-0.5"
+            aria-label="Dismiss"
+            className="flex h-8 w-8 items-center justify-center rounded-lg text-ink-3 transition hover:bg-white/[0.06] hover:text-ink"
           >
-            <X className="w-3.5 h-3.5" />
+            <X className="h-4 w-4" />
           </button>
         </div>
       </div>

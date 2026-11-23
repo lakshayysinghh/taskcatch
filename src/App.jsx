@@ -1,42 +1,48 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { isTauri, safeInvoke as invoke, safeListen as listen, safeSendNotification } from './lib/tauri';
-import { Search, ChevronDown, Trash2, Inbox, Sparkles, X, Clock, CheckCircle, Circle, Flame, Layers, SortAsc, Tag, AlertCircle } from 'lucide-react';
+import { DUE_SOON_MS, compareByDeadline, isDueWithin, isOverdue } from './lib/taskMeta';
+import { isSoundEnabled } from './lib/prefs';
 
 import { AmbientBackground } from './components/AmbientBackground';
 import { Header } from './components/Header';
-import { DashboardActionDeck } from './components/DashboardActionDeck';
-import { StatsBar } from './components/StatsBar';
-import { TaskItem } from './components/TaskItem';
 import { FloatingHUD } from './components/FloatingHUD';
+import { ErrorToast } from './components/ErrorToast';
 import { OverviewView } from './views/OverviewView';
+import { DashboardView } from './views/DashboardView';
 
-// Modals
+// Dialogs
 import { SettingsModal } from './components/SettingsModal';
 import { MorningStandupModal } from './components/MorningStandupModal';
 import { ManualCaptureModal } from './components/ManualCaptureModal';
 import { DownloadModal } from './components/DownloadModal';
 import { TaskDetailModal } from './components/TaskDetailModal';
-import { CustomDropdown } from './components/CustomDropdown';
-import { CATEGORIES, DUE_SOON_MS, compareByDeadline, isDueWithin, isOverdue } from './lib/taskMeta';
-import { isSoundEnabled } from './lib/prefs';
+
+const DASHBOARD_HASH = '#dashboard';
+
+/**
+ * The desktop app opens on the dashboard. The website opens on the product
+ * overview, unless the URL asks for the dashboard (#dashboard).
+ */
+function initialView() {
+  if (isTauri) return 'dashboard';
+  return window.location.hash === DASHBOARD_HASH ? 'dashboard' : 'overview';
+}
 
 export function App() {
-  // 'dashboard' | 'overview'. The website always opens on the product overview;
-  // the desktop app opens straight to the task dashboard.
-  const [currentView, setCurrentView] = useState(isTauri ? 'dashboard' : 'overview');
+  const [currentView, setCurrentView] = useState(initialView); // 'dashboard' | 'overview'
   const [tasks, setTasks] = useState([]);
   const [config, setConfig] = useState({ groq_api_key: '', global_hotkey: 'F9' });
   const [isCapturing, setIsCapturing] = useState(false);
   const [hudTask, setHudTask] = useState(null);
 
-  // Search & Filter state
+  // Search & filter state
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState('all'); // 'all' | 'active' | 'completed'
   const [priorityFilter, setPriorityFilter] = useState('all');
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [sortOrder, setSortOrder] = useState('deadline');
 
-  // Modals state
+  // Dialog state
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isStandupOpen, setIsStandupOpen] = useState(false);
   const [isExtractOpen, setIsExtractOpen] = useState(false);
@@ -44,7 +50,7 @@ export function App() {
   const [editingTask, setEditingTask] = useState(null);
   const [isNewTaskOpen, setIsNewTaskOpen] = useState(false);
 
-  // User-visible error banner. Backend failures surface here instead of
+  // User-visible error notice. Backend failures surface here instead of
   // being swallowed, so the UI never shows a change that was not saved.
   const [errorMessage, setErrorMessage] = useState(null);
   const reportError = (action, err) => {
@@ -53,13 +59,30 @@ export function App() {
     setErrorMessage(`${action}: ${detail}`);
   };
 
+  // Website navigation: #dashboard is bookmarkable and Back returns to the overview.
+  const navigate = (view) => {
+    setCurrentView(view);
+    if (!isTauri) {
+      const wantHash = view === 'dashboard' ? DASHBOARD_HASH : '';
+      if (window.location.hash !== wantHash) {
+        window.history.pushState(null, '', wantHash || `${window.location.pathname}${window.location.search}`);
+      }
+    }
+    document.documentElement.scrollTop = 0;
+  };
+
+  useEffect(() => {
+    if (isTauri) return undefined;
+    const onPop = () => setCurrentView(window.location.hash === DASHBOARD_HASH ? 'dashboard' : 'overview');
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, []);
+
   // Load initial tasks & config
   useEffect(() => {
     invoke('get_tasks')
       .then((data) => {
-        if (data && data.length > 0) {
-          setTasks(data);
-        }
+        if (data && data.length > 0) setTasks(data);
       })
       .catch((err) => reportError('Could not load your tasks', err));
 
@@ -76,17 +99,13 @@ export function App() {
       const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
       const osc = audioCtx.createOscillator();
       const gain = audioCtx.createGain();
-
       osc.type = 'sine';
-      osc.frequency.setValueAtTime(880, audioCtx.currentTime); // A5 note
-      osc.frequency.exponentialRampToValueAtTime(1760, audioCtx.currentTime + 0.12); // A6 bell harmonic
-
+      osc.frequency.setValueAtTime(880, audioCtx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(1760, audioCtx.currentTime + 0.12);
       gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
       gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.45);
-
       osc.connect(gain);
       gain.connect(audioCtx.destination);
-
       osc.start();
       osc.stop(audioCtx.currentTime + 0.45);
     } catch {
@@ -94,26 +113,20 @@ export function App() {
     }
   };
 
-  // Listen for live background captures
+  // Live background captures and keyboard shortcuts
   useEffect(() => {
-    const handleNewTask = async (event) => {
+    const handleNewTask = (event) => {
       const newTask = event.payload;
       setTasks((prev) => [newTask, ...prev.filter((t) => t.id !== newTask.id)]);
       setHudTask(newTask);
       setIsCapturing(false);
       playCaptureChime();
-
       if (!document.hasFocus()) {
-        try {
-          safeSendNotification({ title: 'CAPTURED', body: newTask.content });
-        } catch (e) {
-          console.error("Notification error:", e);
-        }
+        safeSendNotification({ title: 'Captured', body: newTask.content });
       }
     };
 
     let cleanup = () => {};
-
     Promise.all([
       listen('new-task-captured', handleNewTask),
       listen('status-update', (event) => {
@@ -131,12 +144,10 @@ export function App() {
         }
       }),
     ]).then((unlisteners) => {
-      cleanup = () => {
-        unlisteners.forEach((u) => typeof u === 'function' && u());
-      };
+      cleanup = () => unlisteners.forEach((u) => typeof u === 'function' && u());
     });
 
-    // Global keyboard listener inside dashboard (Ctrl+K, Ctrl+,)
+    // Ctrl+K quick add, Ctrl+, settings
     const handleKeyDown = (e) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
@@ -147,7 +158,6 @@ export function App() {
         setIsSettingsOpen(true);
       }
     };
-
     window.addEventListener('keydown', handleKeyDown);
 
     return () => {
@@ -156,14 +166,12 @@ export function App() {
     };
   }, []);
 
-  // Task Actions
+  // Task actions
   const handleToggleTask = async (taskId) => {
     try {
       // Use the state the backend saved rather than flipping locally.
       const completed = await invoke('toggle_task_item', { taskId });
-      setTasks((prev) =>
-        prev.map((t) => (t.id === taskId ? { ...t, completed: Boolean(completed) } : t))
-      );
+      setTasks((prev) => prev.map((t) => (t.id === taskId ? { ...t, completed: Boolean(completed) } : t)));
     } catch (err) {
       reportError('Could not update task', err);
     }
@@ -193,10 +201,7 @@ export function App() {
     // Only drop tasks the backend actually deleted.
     setTasks((prev) => prev.filter((t) => !removed.has(t.id)));
     if (lastError) {
-      reportError(
-        `Could not clear ${completedIds.length - removed.size} completed task(s)`,
-        lastError
-      );
+      reportError(`Could not clear ${completedIds.length - removed.size} completed task(s)`, lastError);
     }
   };
 
@@ -242,53 +247,89 @@ export function App() {
     }
   };
 
-  // Metrics Calculations (deadline-based; `timestamp` is only the capture time)
+  // Metrics (deadline-based; `timestamp` is only the capture time)
   const now = new Date();
-  const totalCount = tasks.length;
   const completedCount = tasks.filter((t) => t.completed).length;
-  const activeCount = totalCount - completedCount;
-  const highPriorityCount = tasks.filter((t) => !t.completed && (t.priority === 'High' || t.priority === 'Urgent')).length;
-  const overdueCount = tasks.filter((t) => isOverdue(t, now)).length;
-  const due48hCount = tasks.filter((t) => isDueWithin(t, DUE_SOON_MS, now)).length;
+  const counts = {
+    totalCount: tasks.length,
+    completedCount,
+    activeCount: tasks.length - completedCount,
+    overdueCount: tasks.filter((t) => isOverdue(t, now)).length,
+    due48hCount: tasks.filter((t) => isDueWithin(t, DUE_SOON_MS, now)).length,
+  };
 
-  // Filtered & Sorted Task List
-  const filteredTasks = useMemo(() => {
-    return tasks
-      .filter((task) => {
-        // Tab filter
-        if (activeTab === 'active' && task.completed) return false;
-        if (activeTab === 'completed' && !task.completed) return false;
+  const filteredTasks = useMemo(
+    () =>
+      tasks
+        .filter((task) => {
+          if (activeTab === 'active' && task.completed) return false;
+          if (activeTab === 'completed' && !task.completed) return false;
+          if (priorityFilter !== 'all' && task.priority !== priorityFilter) return false;
+          if (categoryFilter !== 'all' && task.category !== categoryFilter) return false;
+          if (searchQuery.trim()) {
+            const q = searchQuery.toLowerCase();
+            const hit =
+              task.content?.toLowerCase().includes(q) ||
+              task.category?.toLowerCase().includes(q) ||
+              task.original_text?.toLowerCase().includes(q);
+            if (!hit) return false;
+          }
+          return true;
+        })
+        .sort((a, b) => {
+          if (sortOrder === 'newest') return new Date(b.timestamp) - new Date(a.timestamp);
+          if (sortOrder === 'oldest') return new Date(a.timestamp) - new Date(b.timestamp);
+          return compareByDeadline(a, b);
+        }),
+    [tasks, activeTab, priorityFilter, categoryFilter, searchQuery, sortOrder]
+  );
 
-        // Priority filter
-        if (priorityFilter !== 'all' && task.priority !== priorityFilter) return false;
-
-        // Category filter
-        if (categoryFilter !== 'all' && task.category !== categoryFilter) return false;
-
-        // Search filter
-        if (searchQuery.trim()) {
-          const q = searchQuery.toLowerCase();
-          const matchContent = task.content?.toLowerCase().includes(q);
-          const matchCategory = task.category?.toLowerCase().includes(q);
-          const matchOriginal = task.original_text?.toLowerCase().includes(q);
-          if (!matchContent && !matchCategory && !matchOriginal) return false;
-        }
-
-        return true;
-      })
-      .sort((a, b) => {
-        if (sortOrder === 'newest') return new Date(b.timestamp) - new Date(a.timestamp);
-        if (sortOrder === 'oldest') return new Date(a.timestamp) - new Date(b.timestamp);
-        return compareByDeadline(a, b);
-      });
-  }, [tasks, activeTab, priorityFilter, categoryFilter, searchQuery, sortOrder]);
+  const hotkey = config.global_hotkey || 'F9';
 
   return (
-    <div className="min-h-screen bg-[var(--bg-canvas)] text-[var(--text-primary)] font-sans antialiased relative selection:bg-[var(--olive-900)] selection:text-[var(--olive-100)] pt-16 pb-16">
-      {/* Parallax & Drifting Olive Background */}
+    <div className="relative min-h-screen bg-canvas text-ink">
       <AmbientBackground />
 
-      {/* Floating Action HUD upon capture */}
+      <Header
+        currentView={currentView}
+        onNavigate={navigate}
+        onOpenDownload={() => setIsDownloadOpen(true)}
+        onOpenSettings={() => setIsSettingsOpen(true)}
+      />
+
+      <ErrorToast message={errorMessage} onDismiss={() => setErrorMessage(null)} />
+
+      {currentView === 'overview' ? (
+        <OverviewView onOpenDashboard={() => navigate('dashboard')} onOpenDownload={() => setIsDownloadOpen(true)} />
+      ) : (
+        <DashboardView
+          tasks={tasks}
+          filteredTasks={filteredTasks}
+          counts={counts}
+          hotkey={hotkey}
+          isCapturing={isCapturing}
+          canCapture={isTauri}
+          searchQuery={searchQuery}
+          setSearchQuery={setSearchQuery}
+          activeTab={activeTab}
+          setActiveTab={setActiveTab}
+          priorityFilter={priorityFilter}
+          setPriorityFilter={setPriorityFilter}
+          categoryFilter={categoryFilter}
+          setCategoryFilter={setCategoryFilter}
+          sortOrder={sortOrder}
+          setSortOrder={setSortOrder}
+          onToggle={handleToggleTask}
+          onDelete={handleDeleteTask}
+          onEdit={(t) => setEditingTask(t)}
+          onClearCompleted={handleClearCompleted}
+          onQuickCapture={handleQuickCapture}
+          onOpenStandup={() => setIsStandupOpen(true)}
+          onOpenQuickAdd={() => setIsExtractOpen(true)}
+          onOpenNewTask={() => setIsNewTaskOpen(true)}
+        />
+      )}
+
       {hudTask && (
         <FloatingHUD
           task={hudTask}
@@ -304,246 +345,7 @@ export function App() {
         />
       )}
 
-      {/* Backend error banner */}
-      {errorMessage && (
-        <div
-          role="alert"
-          className="fixed top-20 left-1/2 -translate-x-1/2 z-50 w-[min(640px,calc(100%-2rem))] flex items-start gap-2.5 px-4 py-3 rounded-xl bg-[rgba(40,12,12,0.96)] border border-[rgba(239,68,68,0.35)] text-[13px] text-[#ffb4b4] shadow-[0_10px_40px_rgba(0,0,0,0.6)]"
-        >
-          <AlertCircle className="w-4 h-4 mt-0.5 shrink-0 text-[#ff7b7b]" />
-          <span className="flex-1 break-words">{errorMessage}</span>
-          <button
-            onClick={() => setErrorMessage(null)}
-            className="text-[#ff9b9b] hover:text-[#ffd6d6] p-0.5 shrink-0"
-            aria-label="Dismiss error"
-          >
-            <X className="w-3.5 h-3.5" />
-          </button>
-        </div>
-      )}
-
-      {/* Sticky Global Header */}
-      <Header
-        currentView={currentView}
-        onToggleView={() => setCurrentView((prev) => (prev === 'dashboard' ? 'overview' : 'dashboard'))}
-        onOpenDownload={() => setIsDownloadOpen(true)}
-        onOpenSettings={() => setIsSettingsOpen(true)}
-      />
-
-      {/* Main Content Area */}
-      {currentView === 'overview' ? (
-        <OverviewView
-          onOpenDashboard={() => setCurrentView('dashboard')}
-          onOpenDownload={() => setIsDownloadOpen(true)}
-        />
-      ) : (
-        <main className="max-w-[1100px] mx-auto px-6 pt-2 space-y-6 relative z-10 animate-in fade-in duration-200">
-          {/* Centered Action Deck & Motivational Quote */}
-          <DashboardActionDeck
-            overdueCount={overdueCount}
-            isCapturing={isCapturing}
-            onQuickCapture={handleQuickCapture}
-            onOpenStandup={() => setIsStandupOpen(true)}
-            onOpenExtract={() => setIsExtractOpen(true)}
-            onOpenNewTask={() => setIsNewTaskOpen(true)}
-            hotkey={config.global_hotkey || 'F9'}
-          />
-
-          {/* 4-Card Metrics Grid */}
-          <StatsBar
-            activeCount={activeCount}
-            totalCount={totalCount}
-            highPriorityCount={highPriorityCount}
-            due48hCount={due48hCount}
-            completedCount={completedCount}
-          />
-
-          {/* Search, Filters & Task List Area */}
-          <div className="space-y-4">
-            {/* Inline Search Bar */}
-            <div className="relative">
-              <Search className="w-4 h-4 text-[var(--accent-olive)] absolute left-3.5 top-1/2 -translate-y-1/2" />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search tasks, #categories, keywords..."
-                className="w-full bg-[var(--surface-glass)] backdrop-blur-md border border-[var(--border-subtle)] focus:border-[var(--border-focus)] text-xs sm:text-sm text-[#f2f2ec] rounded-xl pl-10 pr-9 py-2.5 outline-none transition-all placeholder:text-[var(--text-placeholder)]"
-              />
-              {searchQuery && (
-                <button
-                  onClick={() => setSearchQuery('')}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--text-secondary)] hover:text-[#f2f2ec] p-0.5"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              )}
-            </div>
-
-            {/* Filter Controls Row */}
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              {/* Status Segmented Control Pills */}
-              <div className="flex gap-1 bg-[var(--surface-glass)] backdrop-blur-md border border-[var(--border-subtle)] rounded-full p-1">
-                <button
-                  onClick={() => setActiveTab('all')}
-                  className={`text-[13px] px-3.5 py-1.5 rounded-full transition-all ${
-                    activeTab === 'all'
-                      ? 'font-medium text-[#f2f2ec] shadow-sm'
-                      : 'text-[var(--text-secondary)] hover:text-[#f2f2ec]'
-                  }`}
-                  style={
-                    activeTab === 'all'
-                      ? { background: 'linear-gradient(135deg, var(--olive-700), var(--olive-900))' }
-                      : {}
-                  }
-                >
-                  All ({totalCount})
-                </button>
-                <button
-                  onClick={() => setActiveTab('active')}
-                  className={`text-[13px] px-3.5 py-1.5 rounded-full transition-all ${
-                    activeTab === 'active'
-                      ? 'font-medium text-[#f2f2ec] shadow-sm'
-                      : 'text-[var(--text-secondary)] hover:text-[#f2f2ec]'
-                  }`}
-                  style={
-                    activeTab === 'active'
-                      ? { background: 'linear-gradient(135deg, var(--olive-700), var(--olive-900))' }
-                      : {}
-                  }
-                >
-                  Active ({activeCount})
-                </button>
-                <button
-                  onClick={() => setActiveTab('completed')}
-                  className={`text-[13px] px-3.5 py-1.5 rounded-full transition-all ${
-                    activeTab === 'completed'
-                      ? 'font-medium text-[#f2f2ec] shadow-sm'
-                      : 'text-[var(--text-secondary)] hover:text-[#f2f2ec]'
-                  }`}
-                  style={
-                    activeTab === 'completed'
-                      ? { background: 'linear-gradient(135deg, var(--olive-700), var(--olive-900))' }
-                      : {}
-                  }
-                >
-                  Completed ({completedCount})
-                </button>
-              </div>
-
-              {/* Right Dropdowns & Bulk Clear Action */}
-              <div className="flex items-center gap-2.5 flex-wrap">
-                {/* Priority Dropdown */}
-                <CustomDropdown
-                  value={priorityFilter}
-                  onChange={setPriorityFilter}
-                  icon={SortAsc}
-                  options={[
-                    { value: 'all', label: 'All priorities', icon: SortAsc },
-                    { value: 'Urgent', label: 'Urgent', icon: Flame },
-                    { value: 'High', label: 'High', icon: Flame },
-                    { value: 'Medium', label: 'Medium', icon: Layers },
-                    { value: 'Low', label: 'Low', icon: Circle },
-                  ]}
-                />
-
-                {/* Category Dropdown */}
-                <CustomDropdown
-                  value={categoryFilter}
-                  onChange={setCategoryFilter}
-                  icon={Tag}
-                  options={[
-                    { value: 'all', label: 'All categories', icon: Tag },
-                    ...CATEGORIES.map((c) => ({ value: c, label: c, icon: Tag })),
-                  ]}
-                />
-
-                {/* Sort Dropdown */}
-                <CustomDropdown
-                  value={sortOrder}
-                  onChange={setSortOrder}
-                  icon={Clock}
-                  options={[
-                    { value: 'newest', label: 'Sort: Newest', icon: Clock },
-                    { value: 'oldest', label: 'Sort: Oldest', icon: Clock },
-                    { value: 'deadline', label: 'Sort: Deadline', icon: Clock },
-                  ]}
-                />
-
-                {/* Clear Completed Action Button */}
-                {completedCount > 0 && (
-                  <button
-                    onClick={handleClearCompleted}
-                    className="px-2.5 py-1.5 text-xs rounded-full bg-[rgba(239,68,68,0.12)] hover:bg-[rgba(239,68,68,0.22)] border border-[rgba(239,68,68,0.25)] text-[#ff7b7b] transition-colors flex items-center gap-1"
-                  >
-                    <Trash2 className="w-3 h-3" />
-                    <span>Clear completed ({completedCount})</span>
-                  </button>
-                )}
-              </div>
-            </div>
-
-            {/* Task Row Items Stack */}
-            <div className="space-y-2 pt-1">
-              {filteredTasks.length === 0 ? (
-                <div className="text-center py-16 px-4 bg-[var(--surface-glass)] backdrop-blur-md rounded-xl border border-[var(--border-subtle)] space-y-3">
-                  <Inbox className="w-8 h-8 text-[var(--olive-300)] mx-auto opacity-70" />
-                  {searchQuery || priorityFilter !== 'all' || categoryFilter !== 'all' ? (
-                    <div>
-                      <p className="text-sm font-medium text-[#f2f2ec]">No matching tasks</p>
-                      <button
-                        onClick={() => {
-                          setSearchQuery('');
-                          setPriorityFilter('all');
-                          setCategoryFilter('all');
-                        }}
-                        className="text-xs text-[var(--olive-300)] hover:underline mt-1"
-                      >
-                        Clear active filters
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="space-y-3 mt-4">
-                      <p className="text-sm font-medium text-[#f2f2ec]">No tasks in queue</p>
-                      <p className="text-xs text-[var(--text-secondary)] max-w-sm mx-auto leading-relaxed">
-                        Highlight text anywhere in your browser, Slack, or email and press your global hotkey (currently{' '}
-                        <kbd className="font-mono bg-[rgba(168,173,122,0.12)] text-[var(--olive-100)] border border-[rgba(168,173,122,0.2)] px-1.5 py-0.5 rounded text-[10px] font-bold">
-                          {config.global_hotkey || 'F9'}
-                        </kbd>
-                        ) to instantly capture it as a task.
-                      </p>
-                      <button
-                        onClick={() => setIsExtractOpen(true)}
-                        className="px-5 py-2.5 text-[13px] font-bold rounded-[10px] text-[#0b0c0a] shadow-[0_0_15px_rgba(168,173,122,0.15)] hover:opacity-95 transition-all inline-flex items-center gap-1.5 mt-2"
-                        style={{ background: 'linear-gradient(135deg, var(--olive-100), var(--olive-500))' }}
-                      >
-                        <Sparkles className="w-4 h-4" /> Quick add a task
-                      </button>
-                    </div>
-                  )}
-                </div>
-              ) : (
-                filteredTasks.map((task) => (
-                  <TaskItem
-                    key={task.id}
-                    task={task}
-                    onToggle={handleToggleTask}
-                    onDelete={handleDeleteTask}
-                    onEdit={(t) => setEditingTask(t)}
-                  />
-                ))
-              )}
-            </div>
-          </div>
-        </main>
-      )}
-
-      {/* Modals & Dialogs Stack */}
-      <SettingsModal
-        isOpen={isSettingsOpen}
-        onClose={() => setIsSettingsOpen(false)}
-        onConfigSaved={(updated) => setConfig(updated)}
-      />
+      <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} onConfigSaved={(updated) => setConfig(updated)} />
 
       <MorningStandupModal
         isOpen={isStandupOpen}
@@ -557,16 +359,9 @@ export function App() {
         }}
       />
 
-      <ManualCaptureModal
-        isOpen={isExtractOpen}
-        onClose={() => setIsExtractOpen(false)}
-        onSaveTask={(data) => handleSaveEditedTask(data)}
-      />
+      <ManualCaptureModal isOpen={isExtractOpen} onClose={() => setIsExtractOpen(false)} onSaveTask={handleSaveEditedTask} />
 
-      <DownloadModal
-        isOpen={isDownloadOpen}
-        onClose={() => setIsDownloadOpen(false)}
-      />
+      <DownloadModal isOpen={isDownloadOpen} onClose={() => setIsDownloadOpen(false)} />
 
       <TaskDetailModal
         isOpen={isNewTaskOpen || !!editingTask}
@@ -575,7 +370,7 @@ export function App() {
           setIsNewTaskOpen(false);
           setEditingTask(null);
         }}
-        onSave={(data) => handleSaveEditedTask(data)}
+        onSave={handleSaveEditedTask}
       />
     </div>
   );
