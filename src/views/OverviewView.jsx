@@ -52,9 +52,6 @@ export function OverviewView({ onOpenDashboard, onOpenDownload }) {
           >
             <Github className="w-4 h-4" />
             <span>Star on GitHub</span>
-            <span className="flex items-center gap-1 bg-[rgba(168,173,122,0.12)] border border-[var(--border-subtle)] px-2 py-0.5 rounded-md text-[11px] text-[var(--olive-100)] group-hover:bg-[rgba(168,173,122,0.2)] transition-colors">
-              ★ 120
-            </span>
           </a>
         </div>
 
@@ -76,7 +73,7 @@ export function OverviewView({ onOpenDashboard, onOpenDownload }) {
           
           <div className="flex items-center justify-center gap-3 text-[11px] text-[var(--text-secondary)] font-medium">
             <span>• 100% Free on Windows 10 & 11</span>
-            <span>• Local SQLite Storage</span>
+            <span>• Tasks stored locally</span>
             <span>• Under 15 MB</span>
           </div>
         </div>
@@ -114,11 +111,11 @@ export function OverviewView({ onOpenDashboard, onOpenDownload }) {
               </div>
               <h3 className="text-sm font-semibold text-[#f2f2ec]">2. Lightning Groq AI Inference</h3>
               <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
-                Powered by Groq's ultra-fast inference engine running Llama models. TaskCatch distills unstructured text (like a rambling 5-paragraph email thread or long Slack message) into a single, concise task title with priority and category tags in milliseconds.
+                Powered by Groq's fast inference running Llama 3.3 70B. TaskCatch distills unstructured text (like a rambling email thread or long Slack message) into a single, concise task title with a priority, category and deadline. Without an API key, an offline keyword parser does the job instead.
               </p>
             </div>
             <div className="text-[11px] font-mono text-[var(--olive-300)] pt-2 border-t border-[var(--border-subtle)]">
-              800+ tokens/sec
+              Llama 3.3 70B on Groq
             </div>
           </div>
 
@@ -130,11 +127,11 @@ export function OverviewView({ onOpenDashboard, onOpenDownload }) {
               </div>
               <h3 className="text-sm font-semibold text-[#f2f2ec]">3. Local Offline Storage</h3>
               <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
-                Your privacy is paramount. All tasks, metadata, and API credentials are kept strictly local on your machine in encrypted local storage with client-side heuristic fallbacks when offline. Zero telemetry, zero third-party cloud lock-in.
+                Tasks and settings are stored in local files on your PC, not in the cloud. Captured text is sent only to Groq, with your own key; without a key everything stays on your machine and a local parser runs offline. No TaskCatch account and no analytics.
               </p>
             </div>
             <div className="text-[11px] font-mono text-[var(--olive-300)] pt-2 border-t border-[var(--border-subtle)]">
-              100% Private & Offline-Ready
+              Local-first · Works offline
             </div>
           </div>
         </div>
@@ -184,10 +181,10 @@ export function OverviewView({ onOpenDashboard, onOpenDownload }) {
 
           <div className="p-6 rounded-2xl bg-[rgba(10,11,8,0.4)] border border-[var(--border-subtle)] hover:bg-[rgba(19,20,16,0.6)] transition-all space-y-3">
             <div className="flex justify-between items-start">
-              <h4 className="text-[14px] font-bold text-[#f2f2ec]">Local SQLite storage</h4>
-              <span className="text-[9px] font-mono font-bold px-1.5 py-0.5 rounded bg-[rgba(168,173,122,0.1)] text-[var(--olive-300)] uppercase">SQLITE</span>
+              <h4 className="text-[14px] font-bold text-[#f2f2ec]">Local file storage</h4>
+              <span className="text-[9px] font-mono font-bold px-1.5 py-0.5 rounded bg-[rgba(168,173,122,0.1)] text-[var(--olive-300)] uppercase">LOCAL</span>
             </div>
-            <p className="text-xs text-[var(--text-secondary)] leading-relaxed">All tasks, dates, and preferences live in a single SQLite database file on your PC — not in the cloud.</p>
+            <p className="text-xs text-[var(--text-secondary)] leading-relaxed">Tasks live in a JSON file in your Windows profile (%APPDATA%\TaskCatch), with an automatic backup — not in the cloud. Your Groq key is kept in a local settings file in plain text, so treat your PC account as the protection.</p>
           </div>
 
           <div className="p-6 rounded-2xl bg-[rgba(10,11,8,0.4)] border border-[var(--border-subtle)] hover:bg-[rgba(19,20,16,0.6)] transition-all space-y-3">
@@ -218,7 +215,7 @@ export function OverviewView({ onOpenDashboard, onOpenDownload }) {
           </div>
           <div className="p-5 rounded-2xl bg-[rgba(10,11,8,0.4)] border border-[var(--border-subtle)] hover:bg-[rgba(19,20,16,0.6)] transition-all space-y-1.5">
             <h4 className="text-[13px] font-bold text-[#f2f2ec]">Rust Core</h4>
-            <p className="text-[11px] text-[var(--text-secondary)] leading-relaxed">Global hotkeys, clipboard hooks, SQLite store</p>
+            <p className="text-[11px] text-[var(--text-secondary)] leading-relaxed">Global hotkey, clipboard capture, local task store</p>
           </div>
           <div className="p-5 rounded-2xl bg-[rgba(10,11,8,0.4)] border border-[var(--border-subtle)] hover:bg-[rgba(19,20,16,0.6)] transition-all space-y-1.5">
             <h4 className="text-[13px] font-bold text-[#f2f2ec]">React 18 + Vite</h4>
@@ -226,7 +223,7 @@ export function OverviewView({ onOpenDashboard, onOpenDownload }) {
           </div>
           <div className="p-5 rounded-2xl bg-[rgba(10,11,8,0.4)] border border-[var(--border-subtle)] hover:bg-[rgba(19,20,16,0.6)] transition-all space-y-1.5">
             <h4 className="text-[13px] font-bold text-[#f2f2ec]">Win32 APIs</h4>
-            <p className="text-[11px] text-[var(--text-secondary)] leading-relaxed">Native foreground window titles & deep-links</p>
+            <p className="text-[11px] text-[var(--text-secondary)] leading-relaxed">Foreground window titles & full clipboard preservation</p>
           </div>
         </div>
       </div>

@@ -1,9 +1,13 @@
 /**
  * TaskCatch Unified Tauri & Web Abstraction Layer
  * 
- * Provides 100% safe, non-crashing wrappers for all Tauri APIs.
- * Automatically switches between native desktop Tauri IPC and browser localStorage simulation.
+ * In the desktop app, calls go to the Rust backend. In a plain browser (the web
+ * deployment), they go to a localStorage simulation instead. The choice is made
+ * once from the environment, never per call: a backend error in the desktop app
+ * is passed to the caller, not covered up with simulated data.
  */
+
+import { applyTaskPatch, isOverdue } from './taskMeta';
 
 export const isTauri = typeof window !== 'undefined' && Boolean(window.__TAURI_INTERNALS__);
 
@@ -91,6 +95,95 @@ function saveStoredConfig(cfg) {
   localStorage.setItem('taskcatch_web_config', JSON.stringify(cfg));
 }
 
+/** "now" for the model, with the user's UTC offset (mirrors local_time_context in ai_client.rs). */
+function localTimeContext(now = new Date()) {
+  const offsetMin = -now.getTimezoneOffset();
+  const abs = Math.abs(offsetMin);
+  const pad = (n) => String(n).padStart(2, '0');
+  const offset = `${offsetMin >= 0 ? '+' : '-'}${pad(Math.floor(abs / 60))}:${pad(abs % 60)}`;
+  const date = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+  const weekday = now.toLocaleDateString('en-US', { weekday: 'long' });
+  return `Current local date and time: ${weekday} ${date} ${pad(now.getHours())}:${pad(now.getMinutes())} (UTC offset ${offset}).`;
+}
+
+const CHAT_INSTRUCTIONS = `You are the Morning Standup Bot, an executive AI assistant managing the user's tasks.
+You are given the user's current tasks as JSON. Each task has an id, title, priority, category, deadline (ISO-8601 or null), completed flag and captured_at time.
+A task is overdue when it is not completed and its deadline is earlier than the current time.
+Answer the user's questions based on these tasks.
+If they ask to push, reschedule or reprioritise tasks, include a mutation for each affected task.
+IMPORTANT: respond in valid JSON with exactly two fields:
+- "reply": a concise, helpful Markdown response to the user.
+- "mutations": an array (possibly empty). Each item has "task_id", "action": "update", optional "update_priority" (one of "Urgent", "High", "Medium", "Low") and optional "update_deadline" (ISO-8601 date-time with the user's UTC offset).`;
+
+/** Browser-build equivalent of chat_with_standup_ai: same prompt, same validation of changes. */
+async function webStandupChat(apiKey, prompt, tasks) {
+  const compact = tasks.map((t) => ({
+    id: t.id,
+    title: t.content,
+    priority: t.priority,
+    category: t.category,
+    deadline: t.deadline,
+    completed: t.completed,
+    captured_at: t.timestamp,
+  }));
+
+  const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: 'llama-3.3-70b-versatile',
+      temperature: 0.1,
+      response_format: { type: 'json_object' },
+      messages: [
+        { role: 'system', content: `${CHAT_INSTRUCTIONS}\n\n${localTimeContext()}` },
+        { role: 'user', content: `Current Tasks:\n${JSON.stringify(compact)}\n\nUser Prompt: ${prompt}` },
+      ],
+    }),
+  });
+  if (!res.ok) throw `API Error: ${res.status}`;
+
+  let parsed;
+  try {
+    const data = await res.json();
+    parsed = JSON.parse(data.choices[0].message.content);
+  } catch {
+    throw 'Failed to parse JSON schema from LLM.';
+  }
+
+  const stored = getStoredTasks();
+  const applied = [];
+  let skipped = 0;
+  for (const m of Array.isArray(parsed.mutations) ? parsed.mutations : []) {
+    const deadline = m.update_deadline ?? m.update_timestamp;
+    const patch = {
+      ...(m.update_priority ? { priority: m.update_priority } : {}),
+      ...(deadline ? { deadline } : {}),
+    };
+    const index = stored.findIndex((t) => t.id === m.task_id);
+    if ((m.action ?? 'update') !== 'update' || index === -1 || Object.keys(patch).length === 0) {
+      skipped++;
+      continue;
+    }
+    try {
+      stored[index] = applyTaskPatch(stored[index], patch);
+      applied.push({
+        task_id: m.task_id,
+        action: 'update',
+        update_priority: patch.priority ? stored[index].priority : null,
+        update_deadline: patch.deadline ? stored[index].deadline : null,
+        task_title: stored[index].content,
+      });
+    } catch {
+      skipped++;
+    }
+  }
+  if (applied.length > 0) saveStoredTasks(stored);
+
+  let reply = String(parsed.reply ?? '');
+  if (skipped > 0) reply += `\n\n_Note: ${skipped} suggested change(s) could not be applied and were skipped._`;
+  return { reply, mutations: applied };
+}
+
 // Browser simulation fallback for Tauri commands
 async function webTauriBackend(cmd, args = {}) {
   switch (cmd) {
@@ -110,31 +203,49 @@ async function webTauriBackend(cmd, args = {}) {
       return;
     }
     case 'toggle_task_item': {
-      const tasks = getStoredTasks().map((t) =>
-        t.id === (args.taskId || args.task_id) ? { ...t, completed: !t.completed } : t
-      );
+      const id = args.taskId || args.task_id;
+      const tasks = getStoredTasks();
+      const index = tasks.findIndex((t) => t.id === id);
+      if (index === -1) throw `Task ${id} not found`;
+      tasks[index] = { ...tasks[index], completed: !tasks[index].completed };
       saveStoredTasks(tasks);
-      const updated = tasks.find((t) => t.id === (args.taskId || args.task_id));
-      return updated ? updated.completed : false;
+      return tasks[index].completed;
     }
     case 'create_task_item': {
-      const newTask = {
+      const base = {
         id: `web-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-        content: args.content,
-        priority: args.priority || 'Medium',
-        category: args.category || 'General',
-        deadline: args.deadline || null,
-        source_app: 'Web Browser Entry',
-        original_text: args.content,
+        content: '',
+        priority: 'Medium',
+        category: 'General',
+        deadline: null,
+        source_app: null,
+        original_text: null,
         timestamp: new Date().toISOString(),
         completed: false,
       };
-      const tasks = [newTask, ...getStoredTasks()];
-      saveStoredTasks(tasks);
+      // Same validation as the desktop backend.
+      const newTask = applyTaskPatch(base, {
+        content: args.content ?? '',
+        ...(args.priority ? { priority: args.priority } : {}),
+        ...(args.category ? { category: args.category } : {}),
+        deadline: args.deadline ?? null,
+        original_text: args.originalText ?? null,
+      });
+      saveStoredTasks([newTask, ...getStoredTasks()]);
       return newTask;
     }
+    case 'update_task_item': {
+      const id = args.taskId || args.task_id;
+      const tasks = getStoredTasks();
+      const index = tasks.findIndex((t) => t.id === id);
+      if (index === -1) throw `Task ${id} not found`;
+      tasks[index] = applyTaskPatch(tasks[index], args.patch || {});
+      saveStoredTasks(tasks);
+      return tasks[index];
+    }
     case 'trigger_capture': {
-      return;
+      // A browser tab cannot read other apps' selections.
+      throw 'Capturing highlighted text needs the TaskCatch desktop app. In the browser, use "extract" (Ctrl+K) to add a task.';
     }
     case 'chat_with_standup_ai': {
       const config = getStoredConfig();
@@ -143,42 +254,15 @@ async function webTauriBackend(cmd, args = {}) {
       const tasks = getStoredTasks();
 
       if (apiKey && apiKey.trim().length > 0) {
-        try {
-          const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${apiKey.trim()}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              model: 'llama-3.3-70b-versatile',
-              messages: [
-                {
-                  role: 'system',
-                  content: `You are the Morning Standup Bot. Current tasks JSON: ${JSON.stringify(tasks)}. Respond in JSON: {"reply": "Markdown response", "mutations": []}`,
-                },
-                {
-                  role: 'user',
-                  content: prompt,
-                },
-              ],
-              response_format: { type: 'json_object' },
-            }),
-          });
-          if (res.ok) {
-            const data = await res.json();
-            const parsed = JSON.parse(data.choices[0].message.content);
-            return parsed;
-          }
-        } catch (e) {
-          console.warn('[Web AI] Groq direct fetch failed, using mock response:', e);
-        }
+        // A configured key that fails is an error, not a cue to show a canned answer.
+        return webStandupChat(apiKey.trim(), prompt, tasks);
       }
 
-      // Default smart response if no key or offline
+      // No key: offline summary, clearly labelled as such.
       const urgentCount = tasks.filter((t) => !t.completed && (t.priority === 'Urgent' || t.priority === 'High')).length;
+      const overdue = tasks.filter((t) => isOverdue(t)).length;
       return {
-        reply: `Here is your Standup Summary:\n\n- You have **${urgentCount} high/urgent priorities** on deck.\n- All systems operational.\n\n*Note: To enable live LLM chat on the web, add your Groq API key in Settings.*`,
+        reply: `Here is your offline standup summary:\n\n- **${urgentCount}** high/urgent task(s) open.\n- **${overdue}** overdue task(s).\n\n*Add your Groq API key in Settings to chat with the assistant.*`,
         mutations: [],
       };
     }
@@ -189,17 +273,14 @@ async function webTauriBackend(cmd, args = {}) {
 }
 
 /**
- * Safe invoke: executes native Tauri command if in desktop app, else runs web storage simulation.
+ * Runs the native Tauri command in the desktop app, or the web storage
+ * simulation in a browser. In the desktop app, backend errors (Rust `Err`
+ * strings) reject the returned promise; callers must handle them.
  */
 export async function safeInvoke(cmd, args = {}) {
   if (isTauri) {
-    try {
-      const { invoke } = await import('@tauri-apps/api/core');
-      return await invoke(cmd, args);
-    } catch (e) {
-      console.error(`[Tauri Invoke Error] ${cmd}:`, e);
-      return webTauriBackend(cmd, args);
-    }
+    const { invoke } = await import('@tauri-apps/api/core');
+    return invoke(cmd, args);
   }
   return webTauriBackend(cmd, args);
 }

@@ -1,5 +1,26 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { X, Sparkles, Tag, Flame, Calendar, CornerDownLeft, Shield, DollarSign, Terminal, User } from 'lucide-react';
+import { parseTaskText } from '../lib/parseTask';
+
+const CATEGORY_ICONS = {
+  Development: Terminal,
+  Finance: DollarSign,
+  Security: Shield,
+  Personal: User,
+  General: Tag,
+};
+
+function formatDeadlineLabel(iso) {
+  if (!iso) return 'No deadline';
+  const d = new Date(iso);
+  const now = new Date();
+  const tomorrow = new Date(now);
+  tomorrow.setDate(now.getDate() + 1);
+  const time = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  if (d.toDateString() === now.toDateString()) return `Today at ${time}`;
+  if (d.toDateString() === tomorrow.toDateString()) return `Tomorrow at ${time}`;
+  return `${d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })} at ${time}`;
+}
 
 export function ManualCaptureModal({ isOpen, onClose, onSaveTask }) {
   const [text, setText] = useState('');
@@ -16,62 +37,37 @@ export function ManualCaptureModal({ isOpen, onClose, onSaveTask }) {
     }
   }, [isOpen]);
 
-  // Real-time NLP Heuristic Parsing Engine
+  // Live preview from the shared keyword parser (same rules as the desktop fallback)
   const parsedPreview = useMemo(() => {
-    const lower = text.toLowerCase();
-
-    // 1. Priority Detection
-    let priority = 'Medium';
-    if (lower.includes('urgent') || lower.includes('asap') || lower.includes('critical') || lower.includes('!')) {
-      priority = 'Urgent';
-    } else if (lower.includes('high') || lower.includes('important') || lower.includes('p1')) {
-      priority = 'High';
-    } else if (lower.includes('low') || lower.includes('someday') || lower.includes('p3')) {
-      priority = 'Low';
-    }
-
-    // 2. Category Detection
-    let category = 'General';
-    let categoryIcon = Tag;
-    if (lower.includes('#dev') || lower.includes('bug') || lower.includes('fix') || lower.includes('deploy') || lower.includes('code')) {
-      category = 'Development';
-      categoryIcon = Terminal;
-    } else if (lower.includes('#finance') || lower.includes('invoice') || lower.includes('budget') || lower.includes('tax') || lower.includes('$')) {
-      category = 'Finance';
-      categoryIcon = DollarSign;
-    } else if (lower.includes('#security') || lower.includes('auth') || lower.includes('vault') || lower.includes('token') || lower.includes('key')) {
-      category = 'Security';
-      categoryIcon = Shield;
-    } else if (lower.includes('#personal') || lower.includes('buy') || lower.includes('call') || lower.includes('home')) {
-      category = 'Personal';
-      categoryIcon = User;
-    }
-
-    // 3. Deadline Detection
-    let deadline = 'Today at 5:00 PM';
-    if (lower.includes('tomorrow')) deadline = 'Tomorrow at 9:00 AM';
-    else if (lower.includes('friday')) deadline = 'Friday at 5:00 PM';
-    else if (lower.includes('monday')) deadline = 'Next Monday at 9:00 AM';
-    else if (lower.includes('today')) deadline = 'Today at 5:00 PM';
-
-    return { priority, category, categoryIcon, deadline };
+    const parsed = parseTaskText(text);
+    return {
+      ...parsed,
+      categoryIcon: CATEGORY_ICONS[parsed.category] || Tag,
+      deadlineLabel: formatDeadlineLabel(parsed.deadline),
+    };
   }, [text]);
 
   if (!isOpen) return null;
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     if (e) e.preventDefault();
     if (!text.trim()) return;
 
-    onSaveTask({
+    // Re-parse at submit time so relative deadlines are computed from "now",
+    // not from when the preview was last rendered.
+    const parsed = parseTaskText(text);
+    const saved = await onSaveTask({
       content: text.trim(),
-      priority: parsedPreview.priority,
-      category: parsedPreview.category,
-      deadline: parsedPreview.deadline,
+      priority: parsed.priority,
+      category: parsed.category,
+      deadline: parsed.deadline,
     });
 
-    setText('');
-    onClose();
+    // On failure the error banner explains why; keep the text so it isn't lost.
+    if (saved) {
+      setText('');
+      onClose();
+    }
   };
 
   const handleKeyDown = (e) => {
@@ -169,7 +165,7 @@ export function ManualCaptureModal({ isOpen, onClose, onSaveTask }) {
               {/* Deadline Chip */}
               <span className="text-[11px] font-medium px-2.5 py-1 rounded-lg bg-[rgba(168,173,122,0.12)] text-[var(--olive-100)] border border-[var(--border-subtle)] flex items-center gap-1.5 transition-all">
                 <Calendar className="w-3 h-3 text-[var(--olive-300)]" />
-                {parsedPreview.deadline}
+                {parsedPreview.deadlineLabel}
               </span>
             </div>
           </div>

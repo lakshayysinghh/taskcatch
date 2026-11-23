@@ -1,6 +1,7 @@
 import React from 'react';
 import { safeOpen as open } from '../lib/tauri';
 import { Zap, Download, Settings, ArrowLeft, ArrowRight, Github } from 'lucide-react';
+import { version } from '../../package.json';
 
 export function Header({ currentView, onToggleView, onOpenDownload, onOpenSettings }) {
   return (
@@ -23,7 +24,7 @@ export function Header({ currentView, onToggleView, onOpenDownload, onOpenSettin
                 taskcatch
               </span>
               <span className="text-[10px] font-mono font-semibold text-[var(--olive-300)] border border-[rgba(168,173,122,0.3)] px-1.5 py-0.5 rounded-md bg-[rgba(168,173,122,0.08)] uppercase tracking-widest mt-0.5">
-                V1.0
+                v{version}
               </span>
             </div>
             <div className="text-[12px] text-[var(--text-secondary)] -mt-0.5">

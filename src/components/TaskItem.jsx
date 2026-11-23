@@ -59,6 +59,8 @@ export function TaskItem({ task, onToggle, onDelete, onEdit }) {
     try {
       const now = new Date();
       const target = new Date(isoStr);
+      // Older manual tasks stored free text like "Today at 5:00 PM"; show nothing rather than "Invalid Date".
+      if (Number.isNaN(target.getTime())) return null;
       const diffMs = target - now;
       const isPast = diffMs < 0;
       const absDiff = Math.abs(diffMs);
@@ -262,8 +264,12 @@ END:VCALENDAR`;
 
         {/* Bottom: Dedicated Timer Badge */}
         {task.deadline && (() => {
-          const deadlineInfo = formatDeadline(task.deadline);
-          if (!deadlineInfo) return null;
+          const info = formatDeadline(task.deadline);
+          if (!info) return null;
+          // A finished task is never "overdue".
+          const deadlineInfo = task.completed
+            ? { ...info, isPast: false, isUrgentDue: false, label: info.isPast ? 'Was due earlier' : info.label }
+            : info;
           return (
             <div
               className={`flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-0.5 rounded-full border shadow-sm ${

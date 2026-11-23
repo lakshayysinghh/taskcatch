@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { safeInvoke as invoke, safeListen as listen, safeSendNotification } from './lib/tauri';
-import { Search, ChevronDown, Trash2, Inbox, Sparkles, X, Clock, CheckCircle, Circle, Flame, Layers, SortAsc, Tag } from 'lucide-react';
+import { Search, ChevronDown, Trash2, Inbox, Sparkles, X, Clock, CheckCircle, Circle, Flame, Layers, SortAsc, Tag, AlertCircle } from 'lucide-react';
 
 import { AmbientBackground } from './components/AmbientBackground';
 import { Header } from './components/Header';
@@ -17,6 +17,8 @@ import { ManualCaptureModal } from './components/ManualCaptureModal';
 import { DownloadModal } from './components/DownloadModal';
 import { TaskDetailModal } from './components/TaskDetailModal';
 import { CustomDropdown } from './components/CustomDropdown';
+import { CATEGORIES, DUE_SOON_MS, compareByDeadline, isDueWithin, isOverdue } from './lib/taskMeta';
+import { isSoundEnabled } from './lib/prefs';
 
 export function App() {
   const [currentView, setCurrentView] = useState('dashboard'); // 'dashboard' | 'overview'
@@ -40,6 +42,15 @@ export function App() {
   const [editingTask, setEditingTask] = useState(null);
   const [isNewTaskOpen, setIsNewTaskOpen] = useState(false);
 
+  // User-visible error banner. Backend failures surface here instead of
+  // being swallowed, so the UI never shows a change that was not saved.
+  const [errorMessage, setErrorMessage] = useState(null);
+  const reportError = (action, err) => {
+    console.error(`${action}:`, err);
+    const detail = typeof err === 'string' ? err : err?.message || String(err);
+    setErrorMessage(`${action}: ${detail}`);
+  };
+
   // Load initial tasks & config
   useEffect(() => {
     invoke('get_tasks')
@@ -48,18 +59,17 @@ export function App() {
           setTasks(data);
         }
       })
-      .catch((err) => {
-        console.warn('Running in browser or failed to fetch tasks from Tauri:', err);
-      });
+      .catch((err) => reportError('Could not load your tasks', err));
 
     invoke('get_config')
       .then((cfg) => {
         if (cfg) setConfig(cfg);
       })
-      .catch((err) => console.warn('Using default config in browser mode:', err));
+      .catch((err) => reportError('Could not load settings', err));
   }, []);
 
   const playCaptureChime = () => {
+    if (!isSoundEnabled()) return;
     try {
       const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
       const osc = audioCtx.createOscillator();
@@ -104,11 +114,19 @@ export function App() {
 
     Promise.all([
       listen('new-task-captured', handleNewTask),
-      listen('task-created', handleNewTask),
       listen('status-update', (event) => {
         const payload = event.payload;
         if (payload?.state === 'processing') setIsCapturing(true);
         if (payload?.state === 'done' || payload?.state === 'idle') setIsCapturing(false);
+        if (payload?.state === 'error') {
+          setIsCapturing(false);
+          const message = payload.message || 'Unknown error';
+          reportError('Capture failed', message);
+          // Usually the window is hidden in the tray during a hotkey capture.
+          if (!document.hasFocus()) {
+            safeSendNotification({ title: 'Capture failed', body: message });
+          }
+        }
       }),
     ]).then((unlisteners) => {
       cleanup = () => {
@@ -139,12 +157,13 @@ export function App() {
   // Task Actions
   const handleToggleTask = async (taskId) => {
     try {
-      await invoke('toggle_task_item', { taskId });
+      // Use the state the backend saved rather than flipping locally.
+      const completed = await invoke('toggle_task_item', { taskId });
       setTasks((prev) =>
-        prev.map((t) => (t.id === taskId ? { ...t, completed: !t.completed } : t))
+        prev.map((t) => (t.id === taskId ? { ...t, completed: Boolean(completed) } : t))
       );
     } catch (err) {
-      console.error('Failed to toggle task:', err);
+      reportError('Could not update task', err);
     }
   };
 
@@ -153,16 +172,30 @@ export function App() {
       await invoke('delete_task_item', { taskId });
       setTasks((prev) => prev.filter((t) => t.id !== taskId));
     } catch (err) {
-      console.error('Failed to delete task:', err);
+      reportError('Could not delete task', err);
     }
   };
 
   const handleClearCompleted = async () => {
     const completedIds = tasks.filter((t) => t.completed).map((t) => t.id);
+    const removed = new Set();
+    let lastError = null;
     for (const id of completedIds) {
-      await invoke('delete_task_item', { taskId: id }).catch(console.error);
+      try {
+        await invoke('delete_task_item', { taskId: id });
+        removed.add(id);
+      } catch (err) {
+        lastError = err;
+      }
     }
-    setTasks((prev) => prev.filter((t) => !t.completed));
+    // Only drop tasks the backend actually deleted.
+    setTasks((prev) => prev.filter((t) => !removed.has(t.id)));
+    if (lastError) {
+      reportError(
+        `Could not clear ${completedIds.length - removed.size} completed task(s)`,
+        lastError
+      );
+    }
   };
 
   const handleQuickCapture = async () => {
@@ -170,50 +203,51 @@ export function App() {
     try {
       await invoke('trigger_capture');
     } catch (err) {
-      console.error('Trigger capture error:', err);
+      reportError('Could not start capture', err);
       setIsCapturing(false);
     }
   };
 
+  /** Creates or updates a task in the backend. Returns true only once it is saved. */
   const handleSaveEditedTask = async (taskData) => {
-    if (taskData.id) {
-      // Update existing
-      setTasks((prev) =>
-        prev.map((t) => (t.id === taskData.id ? { ...t, ...taskData } : t))
-      );
-    } else {
-      // Create new
-      try {
+    try {
+      if (taskData.id) {
+        const updated = await invoke('update_task_item', {
+          taskId: taskData.id,
+          patch: {
+            content: taskData.content,
+            priority: taskData.priority,
+            category: taskData.category,
+            deadline: taskData.deadline ?? null,
+            original_text: taskData.original_text ?? null,
+          },
+        });
+        setTasks((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
+      } else {
         const created = await invoke('create_task_item', {
           content: taskData.content,
           priority: taskData.priority,
           category: taskData.category,
-          deadline: taskData.deadline,
+          deadline: taskData.deadline ?? null,
+          originalText: taskData.original_text ?? null,
         });
         setTasks((prev) => [created, ...prev]);
-      } catch (err) {
-        console.error('Failed to create task:', err);
       }
+      return true;
+    } catch (err) {
+      reportError(taskData.id ? 'Could not save changes' : 'Could not save new task', err);
+      return false;
     }
   };
 
-  const handlePushOverdue = () => {
-    setTasks((prev) =>
-      prev.map((t) =>
-        t.priority === 'Urgent' || t.priority === 'High'
-          ? { ...t, timestamp: new Date(Date.now() + 86400000).toISOString() }
-          : t
-      )
-    );
-    setIsStandupOpen(false);
-  };
-
-  // Metrics Calculations
+  // Metrics Calculations (deadline-based; `timestamp` is only the capture time)
+  const now = new Date();
   const totalCount = tasks.length;
   const completedCount = tasks.filter((t) => t.completed).length;
   const activeCount = totalCount - completedCount;
   const highPriorityCount = tasks.filter((t) => !t.completed && (t.priority === 'High' || t.priority === 'Urgent')).length;
-  const due48hCount = tasks.filter((t) => !t.completed).length; // Simulated upcoming count
+  const overdueCount = tasks.filter((t) => isOverdue(t, now)).length;
+  const due48hCount = tasks.filter((t) => isDueWithin(t, DUE_SOON_MS, now)).length;
 
   // Filtered & Sorted Task List
   const filteredTasks = useMemo(() => {
@@ -243,7 +277,7 @@ export function App() {
       .sort((a, b) => {
         if (sortOrder === 'newest') return new Date(b.timestamp) - new Date(a.timestamp);
         if (sortOrder === 'oldest') return new Date(a.timestamp) - new Date(b.timestamp);
-        return new Date(b.timestamp) - new Date(a.timestamp);
+        return compareByDeadline(a, b);
       });
   }, [tasks, activeTab, priorityFilter, categoryFilter, searchQuery, sortOrder]);
 
@@ -268,6 +302,24 @@ export function App() {
         />
       )}
 
+      {/* Backend error banner */}
+      {errorMessage && (
+        <div
+          role="alert"
+          className="fixed top-20 left-1/2 -translate-x-1/2 z-50 w-[min(640px,calc(100%-2rem))] flex items-start gap-2.5 px-4 py-3 rounded-xl bg-[rgba(40,12,12,0.96)] border border-[rgba(239,68,68,0.35)] text-[13px] text-[#ffb4b4] shadow-[0_10px_40px_rgba(0,0,0,0.6)]"
+        >
+          <AlertCircle className="w-4 h-4 mt-0.5 shrink-0 text-[#ff7b7b]" />
+          <span className="flex-1 break-words">{errorMessage}</span>
+          <button
+            onClick={() => setErrorMessage(null)}
+            className="text-[#ff9b9b] hover:text-[#ffd6d6] p-0.5 shrink-0"
+            aria-label="Dismiss error"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
+
       {/* Sticky Global Header */}
       <Header
         currentView={currentView}
@@ -286,7 +338,7 @@ export function App() {
         <main className="max-w-[1100px] mx-auto px-6 pt-2 space-y-6 relative z-10 animate-in fade-in duration-200">
           {/* Centered Action Deck & Motivational Quote */}
           <DashboardActionDeck
-            overdueCount={highPriorityCount}
+            overdueCount={overdueCount}
             isCapturing={isCapturing}
             onQuickCapture={handleQuickCapture}
             onOpenStandup={() => setIsStandupOpen(true)}
@@ -400,9 +452,7 @@ export function App() {
                   icon={Tag}
                   options={[
                     { value: 'all', label: 'All categories', icon: Tag },
-                    { value: 'General', label: 'General', icon: Tag },
-                    { value: 'Work', label: 'Work', icon: Tag },
-                    { value: 'Personal', label: 'Personal', icon: Tag },
+                    ...CATEGORIES.map((c) => ({ value: c, label: c, icon: Tag })),
                   ]}
                 />
 
@@ -465,7 +515,7 @@ export function App() {
                         className="px-5 py-2.5 text-[13px] font-bold rounded-[10px] text-[#0b0c0a] shadow-[0_0_15px_rgba(168,173,122,0.15)] hover:opacity-95 transition-all inline-flex items-center gap-1.5 mt-2"
                         style={{ background: 'linear-gradient(135deg, var(--olive-100), var(--olive-500))' }}
                       >
-                        <Sparkles className="w-4 h-4" /> Extract with AI
+                        <Sparkles className="w-4 h-4" /> Quick add a task
                       </button>
                     </div>
                   )}
@@ -497,11 +547,11 @@ export function App() {
         isOpen={isStandupOpen}
         onClose={() => setIsStandupOpen(false)}
         tasks={tasks}
-        onToggleTask={handleToggleTask}
-        onPushOverdue={handlePushOverdue}
         onClearCompleted={handleClearCompleted}
         onRefreshTasks={() => {
-          invoke('get_tasks').then(setTasks).catch(console.error);
+          invoke('get_tasks')
+            .then(setTasks)
+            .catch((err) => reportError('Could not refresh tasks', err));
         }}
       />
 

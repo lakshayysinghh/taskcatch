@@ -1,19 +1,21 @@
 import React, { useState, useEffect } from 'react';
 import { X, Flame, Tag, Calendar, FileText, Check, Flag } from 'lucide-react';
+import { PRIORITIES, CATEGORIES, toLocalInputValue, fromLocalInputValue } from '../lib/taskMeta';
 
 export function TaskDetailModal({ isOpen, onClose, task, onSave }) {
   const [content, setContent] = useState('');
   const [priority, setPriority] = useState('Medium');
   const [category, setCategory] = useState('General');
-  const [deadline, setDeadline] = useState('');
+  const [deadline, setDeadline] = useState(''); // datetime-local value, in local time
   const [originalText, setOriginalText] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
     if (task) {
       setContent(task.content || '');
       setPriority(task.priority || 'Medium');
       setCategory(task.category || 'General');
-      setDeadline(task.deadline || '');
+      setDeadline(toLocalInputValue(task.deadline));
       setOriginalText(task.original_text || '');
     } else {
       setContent('');
@@ -22,24 +24,31 @@ export function TaskDetailModal({ isOpen, onClose, task, onSave }) {
       setDeadline('');
       setOriginalText('');
     }
+    setIsSaving(false);
   }, [task, isOpen]);
 
   if (!isOpen) return null;
 
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    if (!content.trim()) return;
+  // Keep a task's older category selectable so editing other fields doesn't change it.
+  const categoryOptions = CATEGORIES.includes(category) ? CATEGORIES : [...CATEGORIES, category];
 
-    onSave({
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!content.trim() || isSaving) return;
+
+    setIsSaving(true);
+    const saved = await onSave({
       id: task?.id,
       content: content.trim(),
       priority,
       category,
-      deadline: deadline || undefined,
-      original_text: originalText.trim() || undefined,
+      deadline: fromLocalInputValue(deadline),
+      original_text: originalText.trim() || null,
     });
+    setIsSaving(false);
 
-    onClose();
+    // On failure the error banner explains why; keep the form so nothing typed is lost.
+    if (saved) onClose();
   };
 
   return (
@@ -85,10 +94,9 @@ export function TaskDetailModal({ isOpen, onClose, task, onSave }) {
                 className="w-full bg-[rgba(10,11,8,0.5)] border border-[var(--border-subtle)] focus:border-[var(--olive-300)] text-sm text-[#f2f2ec] rounded-xl p-3 outline-none appearance-none cursor-pointer shadow-inner"
                 style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'16\' height=\'16\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'%238c9182\' stroke-width=\'2\' stroke-linecap=\'round\' stroke-linejoin=\'round\'%3E%3Cpath d=\'M6 9l6 6 6-6\'/%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 12px center' }}
               >
-                <option value="Urgent">Urgent</option>
-                <option value="High">High</option>
-                <option value="Medium">Medium</option>
-                <option value="Low">Low</option>
+                {PRIORITIES.map((p) => (
+                  <option key={p} value={p}>{p}</option>
+                ))}
               </select>
             </div>
 
@@ -102,12 +110,9 @@ export function TaskDetailModal({ isOpen, onClose, task, onSave }) {
                 className="w-full bg-[rgba(10,11,8,0.5)] border border-[var(--border-subtle)] focus:border-[var(--olive-300)] text-sm text-[#f2f2ec] rounded-xl p-3 outline-none appearance-none cursor-pointer shadow-inner"
                 style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'16\' height=\'16\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'%238c9182\' stroke-width=\'2\' stroke-linecap=\'round\' stroke-linejoin=\'round\'%3E%3Cpath d=\'M6 9l6 6 6-6\'/%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 12px center' }}
               >
-                <option value="General">General</option>
-                <option value="Security">Security</option>
-                <option value="Development">Development</option>
-                <option value="Finance">Finance</option>
-                <option value="Personal">Personal</option>
-                <option value="Engineering">Engineering</option>
+                {categoryOptions.map((c) => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
               </select>
             </div>
           </div>
@@ -151,10 +156,11 @@ export function TaskDetailModal({ isOpen, onClose, task, onSave }) {
             </button>
             <button
               type="submit"
-              className="px-5 py-2.5 text-[13px] font-semibold rounded-lg text-[#0b0c0a] shadow-sm hover:opacity-95 transition-all flex items-center gap-2 bg-[var(--olive-300)]"
+              disabled={isSaving}
+              className="px-5 py-2.5 text-[13px] font-semibold rounded-lg text-[#0b0c0a] shadow-sm hover:opacity-95 transition-all flex items-center gap-2 bg-[var(--olive-300)] disabled:opacity-50"
             >
               <Check className="w-4 h-4 stroke-[2.5]" />
-              Save task
+              {isSaving ? 'Saving...' : 'Save task'}
             </button>
           </div>
         </form>

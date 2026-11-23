@@ -27,12 +27,8 @@
       }
     ],
     "security": {
-      "csp": null
-    },
-    "trayIcon": {
-      "iconPath": "icons/32x32.png",
-      "iconAsTemplate": true,
-      "tooltip": "TaskCatch - AI Task Extractor"
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' ipc: http://ipc.localhost https://api.groq.com; object-src 'none'; base-uri 'self'; form-action 'self'",
+      "devCsp": "default-src 'self' http://localhost:5173; script-src 'self' 'unsafe-inline' 'unsafe-eval' http://localhost:5173; style-src 'self' 'unsafe-inline' http://localhost:5173 https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: http://localhost:5173; connect-src 'self' ipc: http://ipc.localhost ws://localhost:5173 http://localhost:5173 https://api.groq.com; object-src 'none'; base-uri 'self'"
     }
   },
   "bundle": {
@@ -46,14 +42,5 @@
       "icons/icon.ico"
     ]
   },
-  "plugins": {
-    "globalShortcut": {
-      "shortcuts": [
-        {
-          "action": "trigger_capture",
-          "shortcut": "CommandOrControl+Shift+T"
-        }
-      ]
-    }
-  }
+  "plugins": {}
 }

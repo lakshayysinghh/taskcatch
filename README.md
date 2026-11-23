@@ -28,35 +28,39 @@ irm https://raw.githubusercontent.com/lakshayysinghh/taskcatch/main/install.ps1 
 ```
 
 ### Option 2: Standalone Installer
-Download the latest `TaskCatch_Setup.exe` from the [Releases](https://github.com/lakshayysinghh/taskcatch/releases) page.
+Download the latest `TaskCatch_<version>_x64-setup.exe` (or the `.msi`) from the [Releases](https://github.com/lakshayysinghh/taskcatch/releases) page.
+
+The 1-line installer downloads the same setup `.exe` and verifies its SHA-256 checksum against the digest GitHub publishes for the release asset before running it.
 
 ---
 
 ## ✨ Features
 
-- **⚡ Global OS-Wide Instant Capture (`F9` / `Alt + C`):** Highlight text in Slack, Chrome, VS Code, Discord, or Word, and extract action items instantly without switching windows.
-- **🛡️ Non-Destructive Clipboard Preservation:** Preserves whatever was in your clipboard (including images, formatted text, and files).
-- **🔍 Active Window & Deep-Link Origin Intelligence:** Automatically captures the origin application and deep-link URLs (`🔗 Open source`).
-- **🖥️ Dual Floating Action HUD:** Native always-on-top frameless overlay at the top of your physical screen + in-app pill with 1-click `[Undo]` (`Ctrl + Z`).
-- **☀️ The Morning Standup Bot:** Daily AI executive assistant that summarizes overdue items and curates your Top 3 daily priorities.
-- **⌨️ Natural Language Command Bar (`Ctrl + K`):** Quick-add shorthand parser (`#dev`, `p:urgent`, `tomorrow 5pm`) with real-time live preview chips.
-- **📅 1-Click Calendar Integrations:** One-click Google Calendar web event creation and standard RFC-5545 `.ics` file downloads.
-- **⏰ Smart Workday & EOD Setting:** Customizable End-of-Day hour (5:00 PM, 6:00 PM, 7:00 PM, 8:00 PM) for relative deadlines.
-- **🎨 Obsidian & Olive Glow Theme:** 3D mouse-parallax ambient depth and bespoke glassmorphism.
+- **⚡ Global capture hotkey (`F9` by default, configurable):** Highlight text in Slack, Chrome, VS Code, Discord or Word and press the hotkey. TaskCatch copies the selection and turns it into a task without you switching windows.
+- **🗂️ Runs in the tray:** Closing the window keeps TaskCatch running in the system tray so the hotkey keeps working. Right-click the tray icon to quit.
+- **🛡️ Clipboard preservation (Windows):** Whatever was on your clipboard (text, rich text, images, copied files) is put back after a capture. If nothing was selected, the clipboard is not touched.
+- **🔍 Source window:** Each captured task records the title of the window it came from.
+- **↩️ Capture HUD:** After each capture, an in-app pill offers one-click Undo and Edit.
+- **☀️ Morning Standup Bot (needs a Groq key):** Ask about your tasks and have them rescheduled or reprioritised in chat. Every change is validated before it is saved.
+- **⌨️ Quick add (`Ctrl + K`):** Type a task in plain words. An offline keyword parser picks up priority (`urgent`, `p1`), category (`#dev`, `invoice`) and deadline (`tonight`, `tomorrow 5pm`, `by friday`) with a live preview.
+- **📅 Calendar export:** Open a task in Google Calendar or download it as an `.ics` file.
+- **🎨 Obsidian & Olive Glow theme:** Mouse-parallax ambient background and glassmorphism.
 
 ---
 
 ## 🛠️ Architecture
 
-TaskCatch is designed for local-first speed and zero-friction utility:
-- **Core Engine:** Tauri v2 + Rust (Native Win32 global hooks, clipboard listeners, SQLite store).
-- **Web Frontend:** React 18 + TypeScript + Vite + Tailwind CSS.
-- **AI Extraction:** Direct client-side inference with Groq Cloud (Llama 3.3 70B) + smart local offline heuristic fallback.
-- **Local Database:** SQLite on-device storage.
+- **Desktop shell:** Tauri 2 + Rust. Global hotkey via `tauri-plugin-global-shortcut`; selection capture, clipboard save/restore and window titles via Win32 APIs.
+- **Frontend:** React 18 + Vite + Tailwind CSS (JavaScript).
+- **AI extraction:** Groq (Llama 3.3 70B) with your own API key, called from the Rust backend. Without a key, or if the request fails, a local keyword parser is used instead.
+- **Storage:** Tasks are kept in `%APPDATA%\TaskCatch\tasks.json`, written atomically with a `tasks.json.bak` backup. Settings, including your Groq key in plain text, are in `%APPDATA%\TaskCatch\config.json`.
+- **Web build:** The same UI runs in a browser (`npm run dev`, or the Vercel deployment) with tasks in `localStorage`. Hotkey capture needs the desktop app.
 
 ---
 
 ## 🚀 Getting Started (Development)
+
+Building the desktop app needs [Rust](https://rustup.rs) and the [Tauri prerequisites for Windows](https://v2.tauri.app/start/prerequisites/) (Visual Studio C++ Build Tools and WebView2).
 
 1. **Clone the repository:**
    ```bash
@@ -69,17 +73,20 @@ TaskCatch is designed for local-first speed and zero-friction utility:
    npm install
    ```
 
-3. **Start the local development server:**
+3. **Run the desktop app in development mode:**
    ```bash
-   npm run dev
+   npm run tauri dev
    ```
+   Or run only the browser build (no hotkey capture): `npm run dev`
 
-4. **Launch the background capture daemon:**
+4. **Run the tests:**
    ```bash
-   npm run daemon
+   npm test                      # frontend: parser, storage rules, UI regressions (Vitest)
+   cd src-tauri && cargo test    # backend: task store, AI parsing (needs `npm run build` first)
    ```
+   CI runs both on every push (`.github/workflows/ci.yml`).
 
-5. **Build native desktop release binary:**
+5. **Build the release installer:**
    ```bash
    npm run tauri build
    ```
