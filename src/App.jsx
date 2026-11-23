@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { isTauri, safeInvoke as invoke, safeListen as listen, safeSendNotification } from './lib/tauri';
 import { DUE_SOON_MS, compareByDeadline, isDueWithin, isOverdue } from './lib/taskMeta';
-import { isSoundEnabled } from './lib/prefs';
+import { isOnboardingDone, isSoundEnabled, setOnboardingDone } from './lib/prefs';
+import { OnboardingGuide } from './components/OnboardingGuide';
 
 import { AmbientBackground } from './components/AmbientBackground';
 import { Header } from './components/Header';
@@ -49,6 +50,17 @@ export function App() {
   const [isDownloadOpen, setIsDownloadOpen] = useState(false);
   const [editingTask, setEditingTask] = useState(null);
   const [isNewTaskOpen, setIsNewTaskOpen] = useState(false);
+
+  // First-run guide: opens on the first visit to the dashboard, never again
+  // once finished or skipped. The help button reopens it.
+  const [isGuideOpen, setIsGuideOpen] = useState(false);
+  useEffect(() => {
+    if (currentView === 'dashboard' && !isOnboardingDone()) setIsGuideOpen(true);
+  }, [currentView]);
+  const closeGuide = () => {
+    setOnboardingDone();
+    setIsGuideOpen(false);
+  };
 
   // User-visible error notice. Backend failures surface here instead of
   // being swallowed, so the UI never shows a change that was not saved.
@@ -295,6 +307,7 @@ export function App() {
         onNavigate={navigate}
         onOpenDownload={() => setIsDownloadOpen(true)}
         onOpenSettings={() => setIsSettingsOpen(true)}
+        onOpenGuide={() => setIsGuideOpen(true)}
       />
 
       <ErrorToast message={errorMessage} onDismiss={() => setErrorMessage(null)} />
@@ -327,8 +340,18 @@ export function App() {
           onOpenStandup={() => setIsStandupOpen(true)}
           onOpenQuickAdd={() => setIsExtractOpen(true)}
           onOpenNewTask={() => setIsNewTaskOpen(true)}
+          onOpenGuide={() => setIsGuideOpen(true)}
         />
       )}
+
+      <OnboardingGuide
+        isOpen={isGuideOpen}
+        onClose={closeGuide}
+        hotkey={hotkey}
+        isDesktop={isTauri}
+        onOpenSettings={() => setIsSettingsOpen(true)}
+        onOpenDownload={() => setIsDownloadOpen(true)}
+      />
 
       {hudTask && (
         <FloatingHUD

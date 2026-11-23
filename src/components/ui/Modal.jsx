@@ -25,6 +25,7 @@ export function Modal({
   children,
   bodyClassName = 'px-6 py-5',
   panelClassName = '',
+  ariaLabel, // accessible name for dialogs without a visible title
 }) {
   const panelRef = useRef(null);
   const onCloseRef = useRef(onClose);
@@ -90,6 +91,7 @@ export function Modal({
         role="dialog"
         aria-modal="true"
         aria-labelledby={title ? titleId : undefined}
+        aria-label={title ? undefined : ariaLabel}
         aria-describedby={description ? descId : undefined}
         onKeyDown={trapTab}
         className={`relative flex max-h-[calc(100vh-2rem)] w-full flex-col overflow-hidden rounded-2xl border border-line-strong bg-surface shadow-pop animate-in fade-in zoom-in-95 slide-in-from-bottom-2 duration-200 ${SIZES[size]} ${panelClassName}`}

@@ -11,70 +11,41 @@ import { applyTaskPatch, isOverdue } from './taskMeta';
 
 export const isTauri = typeof window !== 'undefined' && Boolean(window.__TAURI_INTERNALS__);
 
-const INITIAL_SAMPLE_TASKS = [
-  {
-    id: 'sample-1',
-    content: 'Deploy hotfix for authentication token expiry',
-    original_text: 'Slack #dev-ops: We need to deploy the hotfix for the token expiry ASAP before 5 PM release.',
-    priority: 'Urgent',
-    category: 'Development',
-    deadline: new Date(Date.now() + 4 * 3600000).toISOString(),
-    source_app: 'Slack | #dev-ops',
-    timestamp: new Date().toISOString(),
-    completed: false,
-  },
-  {
-    id: 'sample-2',
-    content: 'Review Q3 financial projections spreadsheet',
-    original_text: 'Email from CFO: Please review the attached Q3 financial model by tomorrow afternoon.',
-    priority: 'High',
-    category: 'Finance',
-    deadline: new Date(Date.now() + 24 * 3600000).toISOString(),
-    source_app: 'Inbox - sample@gmail.com - Google Chrome',
-    timestamp: new Date(Date.now() - 3600000).toISOString(),
-    completed: false,
-  },
-  {
-    id: 'sample-3',
-    content: 'Store the provided key in a secure vault',
-    original_text: 'API credentials generated: Ensure all tokens are stored in AWS Secrets Manager.',
-    priority: 'High',
-    category: 'Security',
-    deadline: new Date(Date.now() + 48 * 3600000).toISOString(),
-    source_app: 'AWS Management Console - Google Chrome',
-    timestamp: new Date(Date.now() - 7200000).toISOString(),
-    completed: false,
-  },
-  {
-    id: 'sample-4',
-    content: 'Order replacement ergonomic mouse',
-    original_text: 'Logitech MX Master 3S order request for workstation setup.',
-    priority: 'Low',
-    category: 'Personal',
-    deadline: null,
-    source_app: 'Amazon.com - Google Chrome',
-    timestamp: new Date(Date.now() - 86400000).toISOString(),
-    completed: false,
-  },
-];
+const TASKS_KEY = 'taskcatch_web_tasks';
 
+// Earlier versions seeded four demo tasks with these ids into every visitor's
+// browser. The dashboard now starts empty, so they are removed on load.
+const isLegacySampleTask = (t) => typeof t?.id === 'string' && /^sample-\d+$/.test(t.id);
+
+/** Tasks saved in this browser; starts empty. */
 function getStoredTasks() {
-  if (typeof window === 'undefined') return INITIAL_SAMPLE_TASKS;
-  const stored = localStorage.getItem('taskcatch_web_tasks');
-  if (stored) {
-    try {
-      return JSON.parse(stored);
-    } catch {
-      return INITIAL_SAMPLE_TASKS;
-    }
+  if (typeof window === 'undefined') return [];
+  let stored = null;
+  try {
+    stored = localStorage.getItem(TASKS_KEY);
+  } catch {
+    return []; // storage blocked by the browser
   }
-  localStorage.setItem('taskcatch_web_tasks', JSON.stringify(INITIAL_SAMPLE_TASKS));
-  return INITIAL_SAMPLE_TASKS;
+  if (!stored) return [];
+  let tasks;
+  try {
+    tasks = JSON.parse(stored);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(tasks)) return [];
+  const real = tasks.filter((t) => !isLegacySampleTask(t));
+  if (real.length !== tasks.length) saveStoredTasks(real);
+  return real;
 }
 
 function saveStoredTasks(tasks) {
   if (typeof window === 'undefined') return;
-  localStorage.setItem('taskcatch_web_tasks', JSON.stringify(tasks));
+  try {
+    localStorage.setItem(TASKS_KEY, JSON.stringify(tasks));
+  } catch {
+    throw 'Your browser is blocking storage for this site, so tasks cannot be saved here.';
+  }
 }
 
 function getStoredConfig() {

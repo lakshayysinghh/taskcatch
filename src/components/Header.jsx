@@ -1,13 +1,13 @@
 import React from 'react';
 import { safeOpen as open } from '../lib/tauri';
-import { Download, Settings, Github } from 'lucide-react';
+import { CircleHelp, Download, Settings, Github } from 'lucide-react';
 import { version } from '../../package.json';
 import { Button } from './ui/Button';
 import { LogoMark } from './ui/LogoMark';
 
 const GITHUB_URL = 'https://github.com/lakshayysinghh/taskcatch';
 
-export function Header({ currentView, onNavigate, onOpenDownload, onOpenSettings }) {
+export function Header({ currentView, onNavigate, onOpenDownload, onOpenSettings, onOpenGuide }) {
   const tab = (view, label) => (
     <button
       type="button"
@@ -62,6 +62,9 @@ export function Header({ currentView, onNavigate, onOpenDownload, onOpenSettings
               <Button variant="ghost" size="sm" onClick={onOpenDownload}>
                 <Download className="h-4 w-4" />
                 <span className="hidden sm:inline">Download app</span>
+              </Button>
+              <Button variant="ghost" size="icon" onClick={onOpenGuide} aria-label="Show guide" title="Show the getting-started guide">
+                <CircleHelp className="h-[17px] w-[17px]" />
               </Button>
               <Button variant="ghost" size="icon" onClick={onOpenSettings} aria-label="Settings" title="Settings (Ctrl+,)">
                 <Settings className="h-[17px] w-[17px]" />
