@@ -15,4 +15,10 @@ export default defineConfig({
     minify: !process.env.TAURI_DEBUG ? "esbuild" : false,
     sourcemap: !!process.env.TAURI_DEBUG,
   },
+  test: {
+    environment: 'jsdom',
+    globals: true, // lets Testing Library clean up the DOM after each test
+    setupFiles: ['./src/test/setup.js'],
+    include: ['src/**/*.test.{js,jsx}'],
+  },
 });

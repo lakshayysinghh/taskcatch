@@ -79,10 +79,12 @@ Building the desktop app needs [Rust](https://rustup.rs) and the [Tauri prerequi
    ```
    Or run only the browser build (no hotkey capture): `npm run dev`
 
-4. **Run the Rust tests:**
+4. **Run the tests:**
    ```bash
-   cd src-tauri && cargo test
+   npm test                      # frontend: parser, storage rules, UI regressions (Vitest)
+   cd src-tauri && cargo test    # backend: task store, AI parsing (needs `npm run build` first)
    ```
+   CI runs both on every push (`.github/workflows/ci.yml`).
 
 5. **Build the release installer:**
    ```bash
