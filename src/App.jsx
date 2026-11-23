@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { safeInvoke as invoke, safeListen as listen, safeSendNotification } from './lib/tauri';
+import { isTauri, safeInvoke as invoke, safeListen as listen, safeSendNotification } from './lib/tauri';
 import { Search, ChevronDown, Trash2, Inbox, Sparkles, X, Clock, CheckCircle, Circle, Flame, Layers, SortAsc, Tag, AlertCircle } from 'lucide-react';
 
 import { AmbientBackground } from './components/AmbientBackground';
@@ -21,7 +21,9 @@ import { CATEGORIES, DUE_SOON_MS, compareByDeadline, isDueWithin, isOverdue } fr
 import { isSoundEnabled } from './lib/prefs';
 
 export function App() {
-  const [currentView, setCurrentView] = useState('dashboard'); // 'dashboard' | 'overview'
+  // 'dashboard' | 'overview'. The website always opens on the product overview;
+  // the desktop app opens straight to the task dashboard.
+  const [currentView, setCurrentView] = useState(isTauri ? 'dashboard' : 'overview');
   const [tasks, setTasks] = useState([]);
   const [config, setConfig] = useState({ groq_api_key: '', global_hotkey: 'F9' });
   const [isCapturing, setIsCapturing] = useState(false);

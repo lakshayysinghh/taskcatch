@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { App } from './App';
 import * as tauri from './lib/tauri';
 
@@ -23,9 +23,22 @@ beforeEach(async () => {
   tauri.safeInvoke.mockImplementation(realInvoke);
 });
 
+/** The website opens on the overview; go to the dashboard like a visitor would. */
+function renderDashboard() {
+  render(<App />);
+  fireEvent.click(screen.getByText('Launch Live Dashboard'));
+}
+
 describe('App', () => {
-  it('lists tasks by deadline by default (regression: deadline sort was a no-op)', async () => {
+  it('opens the website on the product overview, not the dashboard', async () => {
     render(<App />);
+    await act(async () => {}); // let the background task/config loading settle
+    expect(screen.getByText('Launch Live Dashboard')).toBeTruthy();
+    expect(screen.queryByText('quick capture')).toBeNull();
+  });
+
+  it('lists tasks by deadline by default (regression: deadline sort was a no-op)', async () => {
+    renderDashboard();
     await screen.findByText(SAMPLE_TITLES[0]);
     const titles = screen
       .getAllByText((_, el) => SAMPLE_TITLES.includes(el?.textContent) && el.children.length === 0)
@@ -37,13 +50,13 @@ describe('App', () => {
     tauri.safeInvoke.mockImplementation((cmd, args) =>
       cmd === 'get_tasks' ? Promise.reject('Could not read task file: disk error') : realInvoke(cmd, args)
     );
-    render(<App />);
+    renderDashboard();
     const banner = await screen.findByRole('alert');
     expect(banner.textContent).toMatch(/Could not load your tasks: Could not read task file: disk error/);
   });
 
   it('offers only the real categories in the filter', async () => {
-    render(<App />);
+    renderDashboard();
     await screen.findByText(SAMPLE_TITLES[0]);
     fireEvent.click(screen.getByText('All categories'));
     for (const c of ['Development', 'Finance', 'Security', 'Personal', 'General']) {
