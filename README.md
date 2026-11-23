@@ -28,7 +28,9 @@ irm https://raw.githubusercontent.com/lakshayysinghh/taskcatch/main/install.ps1 
 ```
 
 ### Option 2: Standalone Installer
-Download the latest `TaskCatch_Setup.exe` from the [Releases](https://github.com/lakshayysinghh/taskcatch/releases) page.
+Download the latest `TaskCatch_<version>_x64-setup.exe` (or the `.msi`) from the [Releases](https://github.com/lakshayysinghh/taskcatch/releases) page.
+
+The 1-line installer downloads the same setup `.exe` and verifies its SHA-256 checksum against the digest GitHub publishes for the release asset before running it.
 
 ---
 

@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { isTauri } from './lib/tauri';
 import { App } from './App';
 import { Overlay } from './Overlay';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import './theme.css';
 
 function Root() {
@@ -35,5 +36,9 @@ function Root() {
 const rootElement = document.getElementById('root');
 if (rootElement) {
   const root = createRoot(rootElement);
-  root.render(<Root />);
+  root.render(
+    <ErrorBoundary>
+      <Root />
+    </ErrorBoundary>
+  );
 }

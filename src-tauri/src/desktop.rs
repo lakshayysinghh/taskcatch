@@ -13,6 +13,18 @@ use crate::hotkey;
 #[derive(Clone, Serialize)]
 struct StatusPayload {
     state: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    message: Option<String>,
+}
+
+impl StatusPayload {
+    fn new(state: &str) -> Self {
+        Self { state: state.into(), message: None }
+    }
+
+    fn error(message: String) -> Self {
+        Self { state: "error".into(), message: Some(message) }
+    }
 }
 
 #[tauri::command]
@@ -39,7 +51,7 @@ async fn update_config(app: AppHandle, state: tauri::State<'_, ConfigState>, new
 
 #[tauri::command]
 async fn get_tasks() -> Result<Vec<Task>, String> {
-    Ok(db::get_tasks())
+    db::get_tasks()
 }
 
 #[tauri::command]
@@ -79,7 +91,7 @@ async fn trigger_capture(app: AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 async fn chat_with_standup_ai(prompt: String, app: AppHandle) -> Result<ai_client::ChatResponseData, String> {
-    let tasks = db::get_tasks();
+    let tasks = db::get_tasks()?;
     let tasks_json = serde_json::to_string(&tasks).map_err(|e| e.to_string())?;
 
     let api_key = {
@@ -155,14 +167,14 @@ pub fn run() {
 
 async fn handle_capture_flow(app: &AppHandle) {
     // 1. Notify frontend extraction has started
-    let _ = app.emit("status-update", StatusPayload { state: "processing".into() });
+    let _ = app.emit("status-update", StatusPayload::new("processing"));
 
     // 2. Safe OS-level selection capture (saves & restores original clipboard + window title)
     let capture_res = match capture::get_selected_text() {
         Ok(t) => t,
         Err(e) => {
             eprintln!("Capture error: {}", e);
-            let _ = app.emit("status-update", StatusPayload { state: "idle".into() });
+            let _ = app.emit("status-update", StatusPayload::new("idle"));
             return;
         }
     };
@@ -192,12 +204,19 @@ async fn handle_capture_flow(app: &AppHandle) {
         completed: false,
     };
 
+    // Only announce the task once it is actually on disk; otherwise the UI
+    // would show a capture that vanishes on the next restart.
     if let Err(e) = db::save_task(new_task.clone()) {
         eprintln!("DB save error: {}", e);
+        let _ = app.emit(
+            "status-update",
+            StatusPayload::error(format!("Captured text could not be saved: {}", e)),
+        );
+        return;
     }
 
     // 6. Broadcast event to React frontend & complete status
     let _ = app.emit("new-task-captured", new_task.clone());
     let _ = app.emit("task-created", new_task);
-    let _ = app.emit("status-update", StatusPayload { state: "done".into() });
+    let _ = app.emit("status-update", StatusPayload::new("done"));
 }

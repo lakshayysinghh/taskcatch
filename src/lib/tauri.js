@@ -1,8 +1,10 @@
 /**
  * TaskCatch Unified Tauri & Web Abstraction Layer
  * 
- * Provides 100% safe, non-crashing wrappers for all Tauri APIs.
- * Automatically switches between native desktop Tauri IPC and browser localStorage simulation.
+ * In the desktop app, calls go to the Rust backend. In a plain browser (the web
+ * deployment), they go to a localStorage simulation instead. The choice is made
+ * once from the environment, never per call: a backend error in the desktop app
+ * is passed to the caller, not covered up with simulated data.
  */
 
 export const isTauri = typeof window !== 'undefined' && Boolean(window.__TAURI_INTERNALS__);
@@ -189,17 +191,14 @@ async function webTauriBackend(cmd, args = {}) {
 }
 
 /**
- * Safe invoke: executes native Tauri command if in desktop app, else runs web storage simulation.
+ * Runs the native Tauri command in the desktop app, or the web storage
+ * simulation in a browser. In the desktop app, backend errors (Rust `Err`
+ * strings) reject the returned promise; callers must handle them.
  */
 export async function safeInvoke(cmd, args = {}) {
   if (isTauri) {
-    try {
-      const { invoke } = await import('@tauri-apps/api/core');
-      return await invoke(cmd, args);
-    } catch (e) {
-      console.error(`[Tauri Invoke Error] ${cmd}:`, e);
-      return webTauriBackend(cmd, args);
-    }
+    const { invoke } = await import('@tauri-apps/api/core');
+    return invoke(cmd, args);
   }
   return webTauriBackend(cmd, args);
 }

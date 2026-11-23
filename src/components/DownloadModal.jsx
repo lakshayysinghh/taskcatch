@@ -59,7 +59,7 @@ export function DownloadModal({ isOpen, onClose }) {
           {/* Method 2: Direct EXE Installer */}
           <div className="p-4 rounded-md bg-[rgba(10,11,8,0.6)] border border-[var(--border-subtle)] flex items-center justify-between">
             <div>
-              <div className="text-xs font-semibold text-[#f2f2ec]">TaskCatch_Setup.exe (Standalone)</div>
+              <div className="text-xs font-semibold text-[#f2f2ec]">Windows installer (.exe / .msi)</div>
               <div className="text-[11px] text-[var(--text-secondary)]">Includes background tray icon & global shortcut listener</div>
             </div>
             <a

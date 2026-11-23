@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { safeInvoke as invoke } from '../lib/tauri';
-import { X, Sun, Zap, Bot, User, Send, ArrowRight, Loader2 } from 'lucide-react';
+import { X, Sun, Zap, Bot, User, Send, ArrowRight, Loader2, CheckCircle } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 
 export function MorningStandupModal({ isOpen, onClose, tasks, onToggleTask, onPushOverdue, onClearCompleted, onRefreshTasks }) {

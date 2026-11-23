@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { safeInvoke as invoke, safeListen as listen, safeSendNotification } from './lib/tauri';
-import { Search, ChevronDown, Trash2, Inbox, Sparkles, X, Clock, CheckCircle, Circle, Flame, Layers, SortAsc, Tag } from 'lucide-react';
+import { Search, ChevronDown, Trash2, Inbox, Sparkles, X, Clock, CheckCircle, Circle, Flame, Layers, SortAsc, Tag, AlertCircle } from 'lucide-react';
 
 import { AmbientBackground } from './components/AmbientBackground';
 import { Header } from './components/Header';
@@ -40,6 +40,15 @@ export function App() {
   const [editingTask, setEditingTask] = useState(null);
   const [isNewTaskOpen, setIsNewTaskOpen] = useState(false);
 
+  // User-visible error banner. Backend failures surface here instead of
+  // being swallowed, so the UI never shows a change that was not saved.
+  const [errorMessage, setErrorMessage] = useState(null);
+  const reportError = (action, err) => {
+    console.error(`${action}:`, err);
+    const detail = typeof err === 'string' ? err : err?.message || String(err);
+    setErrorMessage(`${action}: ${detail}`);
+  };
+
   // Load initial tasks & config
   useEffect(() => {
     invoke('get_tasks')
@@ -48,15 +57,13 @@ export function App() {
           setTasks(data);
         }
       })
-      .catch((err) => {
-        console.warn('Running in browser or failed to fetch tasks from Tauri:', err);
-      });
+      .catch((err) => reportError('Could not load your tasks', err));
 
     invoke('get_config')
       .then((cfg) => {
         if (cfg) setConfig(cfg);
       })
-      .catch((err) => console.warn('Using default config in browser mode:', err));
+      .catch((err) => reportError('Could not load settings', err));
   }, []);
 
   const playCaptureChime = () => {
@@ -109,6 +116,10 @@ export function App() {
         const payload = event.payload;
         if (payload?.state === 'processing') setIsCapturing(true);
         if (payload?.state === 'done' || payload?.state === 'idle') setIsCapturing(false);
+        if (payload?.state === 'error') {
+          setIsCapturing(false);
+          reportError('Capture failed', payload.message || 'Unknown error');
+        }
       }),
     ]).then((unlisteners) => {
       cleanup = () => {
@@ -139,12 +150,13 @@ export function App() {
   // Task Actions
   const handleToggleTask = async (taskId) => {
     try {
-      await invoke('toggle_task_item', { taskId });
+      // Use the state the backend saved rather than flipping locally.
+      const completed = await invoke('toggle_task_item', { taskId });
       setTasks((prev) =>
-        prev.map((t) => (t.id === taskId ? { ...t, completed: !t.completed } : t))
+        prev.map((t) => (t.id === taskId ? { ...t, completed: Boolean(completed) } : t))
       );
     } catch (err) {
-      console.error('Failed to toggle task:', err);
+      reportError('Could not update task', err);
     }
   };
 
@@ -153,16 +165,30 @@ export function App() {
       await invoke('delete_task_item', { taskId });
       setTasks((prev) => prev.filter((t) => t.id !== taskId));
     } catch (err) {
-      console.error('Failed to delete task:', err);
+      reportError('Could not delete task', err);
     }
   };
 
   const handleClearCompleted = async () => {
     const completedIds = tasks.filter((t) => t.completed).map((t) => t.id);
+    const removed = new Set();
+    let lastError = null;
     for (const id of completedIds) {
-      await invoke('delete_task_item', { taskId: id }).catch(console.error);
+      try {
+        await invoke('delete_task_item', { taskId: id });
+        removed.add(id);
+      } catch (err) {
+        lastError = err;
+      }
     }
-    setTasks((prev) => prev.filter((t) => !t.completed));
+    // Only drop tasks the backend actually deleted.
+    setTasks((prev) => prev.filter((t) => !removed.has(t.id)));
+    if (lastError) {
+      reportError(
+        `Could not clear ${completedIds.length - removed.size} completed task(s)`,
+        lastError
+      );
+    }
   };
 
   const handleQuickCapture = async () => {
@@ -170,7 +196,7 @@ export function App() {
     try {
       await invoke('trigger_capture');
     } catch (err) {
-      console.error('Trigger capture error:', err);
+      reportError('Could not start capture', err);
       setIsCapturing(false);
     }
   };
@@ -192,7 +218,7 @@ export function App() {
         });
         setTasks((prev) => [created, ...prev]);
       } catch (err) {
-        console.error('Failed to create task:', err);
+        reportError('Could not save new task', err);
       }
     }
   };
@@ -266,6 +292,24 @@ export function App() {
           }}
           onClose={() => setHudTask(null)}
         />
+      )}
+
+      {/* Backend error banner */}
+      {errorMessage && (
+        <div
+          role="alert"
+          className="fixed top-20 left-1/2 -translate-x-1/2 z-50 w-[min(640px,calc(100%-2rem))] flex items-start gap-2.5 px-4 py-3 rounded-xl bg-[rgba(40,12,12,0.96)] border border-[rgba(239,68,68,0.35)] text-[13px] text-[#ffb4b4] shadow-[0_10px_40px_rgba(0,0,0,0.6)]"
+        >
+          <AlertCircle className="w-4 h-4 mt-0.5 shrink-0 text-[#ff7b7b]" />
+          <span className="flex-1 break-words">{errorMessage}</span>
+          <button
+            onClick={() => setErrorMessage(null)}
+            className="text-[#ff9b9b] hover:text-[#ffd6d6] p-0.5 shrink-0"
+            aria-label="Dismiss error"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
       )}
 
       {/* Sticky Global Header */}
@@ -501,7 +545,9 @@ export function App() {
         onPushOverdue={handlePushOverdue}
         onClearCompleted={handleClearCompleted}
         onRefreshTasks={() => {
-          invoke('get_tasks').then(setTasks).catch(console.error);
+          invoke('get_tasks')
+            .then(setTasks)
+            .catch((err) => reportError('Could not refresh tasks', err));
         }}
       />
 
