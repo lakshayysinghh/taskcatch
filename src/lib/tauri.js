@@ -244,7 +244,8 @@ async function webTauriBackend(cmd, args = {}) {
       return tasks[index];
     }
     case 'trigger_capture': {
-      return;
+      // A browser tab cannot read other apps' selections.
+      throw 'Capturing highlighted text needs the TaskCatch desktop app. In the browser, use "extract" (Ctrl+K) to add a task.';
     }
     case 'chat_with_standup_ai': {
       const config = getStoredConfig();

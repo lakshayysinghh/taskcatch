@@ -118,7 +118,12 @@ export function App() {
         if (payload?.state === 'done' || payload?.state === 'idle') setIsCapturing(false);
         if (payload?.state === 'error') {
           setIsCapturing(false);
-          reportError('Capture failed', payload.message || 'Unknown error');
+          const message = payload.message || 'Unknown error';
+          reportError('Capture failed', message);
+          // Usually the window is hidden in the tray during a hotkey capture.
+          if (!document.hasFocus()) {
+            safeSendNotification({ title: 'Capture failed', body: message });
+          }
         }
       }),
     ]).then((unlisteners) => {

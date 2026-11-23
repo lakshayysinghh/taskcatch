@@ -55,6 +55,7 @@ export function DashboardActionDeck({
         <button
           onClick={onQuickCapture}
           disabled={isCapturing}
+          title="Captures the text you highlighted in the app you were using before TaskCatch"
           className="font-sans text-[13px] font-medium px-4 py-2.5 rounded-full border border-[var(--border-subtle)] text-[#d5d6cd] hover:border-[rgba(168,173,122,0.4)] transition-all flex items-center gap-2 shadow-sm disabled:opacity-50"
           style={{ background: 'linear-gradient(135deg, rgba(35,37,28,0.8), rgba(10,11,8,0.95))' }}
         >
