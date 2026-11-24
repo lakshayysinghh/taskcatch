@@ -52,6 +52,7 @@ async fn update_config(app: AppHandle, state: tauri::State<'_, ConfigState>, new
     new_config.voice_hotkey = new_config.voice_hotkey.trim().to_string();
     new_config.dictation_hotkey = new_config.dictation_hotkey.trim().to_string();
     new_config.voice_language = new_config.voice_language.trim().to_lowercase();
+    new_config.voice_vocabulary = new_config.voice_vocabulary.trim().chars().take(2_000).collect();
     let old_config = lock(&state.0).clone();
 
     // Register the new hotkeys before saving anything. If one is invalid,
@@ -269,6 +270,11 @@ pub fn run() {
             app.manage(VoiceState(Mutex::new(VoiceSession::Idle)));
             if let Err(e) = register_all_hotkeys(app.handle(), &config) {
                 eprintln!("Failed to register hotkeys at start-up: {}", e);
+            }
+            // Open the microphone now (paused) so the first voice take
+            // starts instantly instead of losing its first words.
+            if !config.voice_hotkey.is_empty() || !config.dictation_hotkey.is_empty() {
+                voice::prewarm();
             }
             app.manage(ConfigState(Mutex::new(config)));
 
@@ -537,7 +543,7 @@ fn begin_hotkey_recording(app: AppHandle, purpose: VoicePurpose) {
             Ok(recording) if released_early => {
                 *session = VoiceSession::Idle;
                 drop(session);
-                let _ = recording.finish();
+                recording.discard();
                 emit_voice(&app, "error", purpose, Some("Too short — hold the key while you speak.".to_string()));
             }
             Ok(recording) => {
@@ -589,12 +595,12 @@ async fn finish_hotkey_recording(app: AppHandle, purpose: VoicePurpose, recordin
             .map(|_| ())
             .map_err(|e| format!("The task could not be saved: {}", e)),
         VoicePurpose::Dictation => {
-            let (api_key, cleanup) = {
+            let (api_key, cleanup, vocabulary) = {
                 let config_state = app.state::<ConfigState>();
                 let cfg = lock(&config_state.0);
-                (cfg.groq_api_key.clone(), cfg.dictation_cleanup)
+                (cfg.groq_api_key.clone(), cfg.dictation_cleanup, cfg.voice_vocabulary.clone())
             };
-            let final_text = if cleanup { ai_client::clean_dictation(&api_key, &text).await } else { text };
+            let final_text = if cleanup { ai_client::clean_dictation(&api_key, &text, &vocabulary).await } else { text };
             match tauri::async_runtime::spawn_blocking(move || capture::type_text(&final_text)).await {
                 Ok(result) => result,
                 Err(e) => Err(format!("Typing failed: {}", e)),
@@ -614,12 +620,12 @@ async fn transcribe_recording(app: &AppHandle, recording: voice::Recording) -> R
     let wav = tauri::async_runtime::spawn_blocking(move || recording.finish().and_then(voice::prepare_wav))
         .await
         .map_err(|e| e.to_string())??;
-    let (api_key, language) = {
+    let (api_key, language, vocabulary) = {
         let config_state = app.state::<ConfigState>();
         let cfg = lock(&config_state.0);
-        (cfg.groq_api_key.clone(), cfg.voice_language.clone())
+        (cfg.groq_api_key.clone(), cfg.voice_language.clone(), cfg.voice_vocabulary.clone())
     };
-    let text = ai_client::transcribe(&api_key, wav, &language).await?;
+    let text = ai_client::transcribe(&api_key, wav, &language, &vocabulary).await?;
     if text.trim().is_empty() {
         return Err("No speech was recognised. Try again a little closer to the microphone.".to_string());
     }
@@ -666,7 +672,7 @@ async fn voice_stop(app: AppHandle) -> Result<String, String> {
 #[tauri::command]
 async fn voice_cancel(app: AppHandle) -> Result<(), String> {
     if let Some(recording) = take_text_recording(&app) {
-        let _ = tauri::async_runtime::spawn_blocking(move || recording.finish()).await;
+        let _ = tauri::async_runtime::spawn_blocking(move || recording.discard()).await;
     }
     Ok(())
 }

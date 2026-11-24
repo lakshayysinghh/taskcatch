@@ -114,6 +114,7 @@ export function SettingsModal({ isOpen, onClose, onConfigSaved }) {
   const [dictationHotkey, setDictationHotkey] = useState('F7');
   const [voiceLanguage, setVoiceLanguage] = useState('');
   const [dictationCleanup, setDictationCleanup] = useState(true);
+  const [voiceVocabulary, setVoiceVocabulary] = useState('');
   const [soundEnabled, setSoundEnabled] = useState(true);
 
   const [isTesting, setIsTesting] = useState(false);
@@ -136,6 +137,7 @@ export function SettingsModal({ isOpen, onClose, onConfigSaved }) {
             setDictationHotkey(cfg.dictation_hotkey ?? 'F7');
             setVoiceLanguage(cfg.voice_language || '');
             setDictationCleanup(cfg.dictation_cleanup ?? true);
+            setVoiceVocabulary(cfg.voice_vocabulary || '');
           }
         })
         .catch(console.error);
@@ -179,6 +181,7 @@ export function SettingsModal({ isOpen, onClose, onConfigSaved }) {
       dictation_hotkey: dictationHotkey.trim(),
       voice_language: voiceLanguage,
       dictation_cleanup: dictationCleanup,
+      voice_vocabulary: voiceVocabulary.trim(),
     };
     try {
       // The backend registers the hotkey first and only saves if that works.
@@ -346,6 +349,22 @@ export function SettingsModal({ isOpen, onClose, onConfigSaved }) {
                   </option>
                 ))}
               </Select>
+            </div>
+
+            <div>
+              <Label htmlFor="voice-vocabulary" hint="Separate with commas">
+                Custom words
+              </Label>
+              <textarea
+                id="voice-vocabulary"
+                rows={2}
+                maxLength={2000}
+                value={voiceVocabulary}
+                onChange={(e) => setVoiceVocabulary(e.target.value)}
+                placeholder="Names, products and jargon, e.g. Priya, Kubernetes, Q3 OKRs"
+                className={`${inputClass} resize-none py-2 leading-relaxed`}
+              />
+              <p className="mt-1.5 text-[12px] text-ink-3">Whisper spells these the way you write them here.</p>
             </div>
 
             <div className="flex items-center justify-between gap-4 rounded-xl border border-line bg-black/20 p-4">

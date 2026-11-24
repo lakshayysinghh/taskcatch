@@ -24,6 +24,9 @@ pub struct AppConfig {
     /// Tidy dictated text (punctuation, filler words) before typing it.
     #[serde(default = "default_true")]
     pub dictation_cleanup: bool,
+    /// Names and terms to spell correctly, separated by commas or new lines.
+    #[serde(default)]
+    pub voice_vocabulary: String,
 }
 
 fn default_capture_hotkey() -> String {
@@ -51,6 +54,7 @@ impl Default for AppConfig {
             dictation_hotkey: default_dictation_hotkey(),
             voice_language: String::new(),
             dictation_cleanup: true,
+            voice_vocabulary: String::new(),
         }
     }
 }
