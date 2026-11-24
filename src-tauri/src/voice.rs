@@ -102,8 +102,45 @@ pub fn prewarm() {
     let _ = engine().send(Command::Prewarm);
 }
 
+fn shared() -> &'static Arc<Shared> {
+    static SHARED: OnceLock<Arc<Shared>> = OnceLock::new();
+    SHARED.get_or_init(|| Arc::new(Shared::default()))
+}
+
+/// Samples used for the live level: about the last 50 ms.
+const LEVEL_SAMPLES: usize = 2_400;
+
+/// Current microphone level while recording, from 0 (silence, -60 dBFS or
+/// less) to 1 (-10 dBFS or more). 0 when not recording. Cheap enough to
+/// call 20 times a second for the on-screen meter.
+pub fn input_level() -> f32 {
+    let s = shared();
+    if !s.recording.load(Ordering::Acquire) {
+        return 0.0;
+    }
+    let buffer = match s.samples.lock() {
+        Ok(b) => b,
+        Err(_) => return 0.0,
+    };
+    let n = buffer.len().min(LEVEL_SAMPLES);
+    if n == 0 {
+        return 0.0;
+    }
+    let tail = &buffer[buffer.len() - n..];
+    let rms = (tail.iter().map(|x| x * x).sum::<f32>() / n as f32).sqrt();
+    level_from_rms(rms)
+}
+
+/// Maps an RMS amplitude to a 0..1 meter level on a -60..-10 dBFS scale.
+pub fn level_from_rms(rms: f32) -> f32 {
+    if rms <= 0.0 {
+        return 0.0;
+    }
+    ((20.0 * rms.log10() + 60.0) / 50.0).clamp(0.0, 1.0)
+}
+
 fn audio_thread(rx: mpsc::Receiver<Command>) {
-    let shared = Arc::new(Shared::default());
+    let shared = Arc::clone(shared());
     let mut mic: Option<Mic> = None;
     while let Ok(command) = rx.recv() {
         match command {
@@ -542,6 +579,15 @@ mod tests {
 
     fn rms(samples: &[f32]) -> f32 {
         (samples.iter().map(|s| s * s).sum::<f32>() / samples.len() as f32).sqrt()
+    }
+
+    #[test]
+    fn meter_level_scale() {
+        assert_eq!(level_from_rms(0.0), 0.0);
+        assert_eq!(level_from_rms(0.0005), 0.0); // about -66 dBFS
+        assert!((level_from_rms(0.01) - 0.4).abs() < 0.01); // -40 dBFS
+        assert_eq!(level_from_rms(0.5), 1.0);
+        assert_eq!(input_level(), 0.0); // not recording
     }
 
     #[test]
