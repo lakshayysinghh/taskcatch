@@ -188,7 +188,7 @@ fn build<T, F>(
     config: &cpal::StreamConfig,
     shared: &Arc<Shared>,
     convert: F,
-) -> Result<cpal::Stream, cpal::BuildStreamError>
+) -> Result<cpal::Stream, String>
 where
     T: cpal::SizedSample + Send + 'static,
     F: Fn(T) -> f32 + Send + 'static,
@@ -204,6 +204,7 @@ where
         },
         None,
     )
+    .map_err(|e| e.to_string())
 }
 
 /// Opens the default microphone, starts it once to finish Windows' slow
