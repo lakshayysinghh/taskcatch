@@ -61,6 +61,7 @@ describe('Settings: voice tab', () => {
       dictation_cleanup: false,
       voice_vocabulary: 'Priya, Kubernetes',
       voice_model: 'fast',
+      voice_overlay: true,
     });
   });
 });

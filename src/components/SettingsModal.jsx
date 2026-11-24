@@ -116,6 +116,7 @@ export function SettingsModal({ isOpen, onClose, onConfigSaved }) {
   const [dictationCleanup, setDictationCleanup] = useState(true);
   const [voiceVocabulary, setVoiceVocabulary] = useState('');
   const [voiceModel, setVoiceModel] = useState('accurate');
+  const [voiceOverlay, setVoiceOverlay] = useState(true);
   const [soundEnabled, setSoundEnabled] = useState(true);
 
   const [isTesting, setIsTesting] = useState(false);
@@ -140,6 +141,7 @@ export function SettingsModal({ isOpen, onClose, onConfigSaved }) {
             setDictationCleanup(cfg.dictation_cleanup ?? true);
             setVoiceVocabulary(cfg.voice_vocabulary || '');
             setVoiceModel(cfg.voice_model === 'fast' ? 'fast' : 'accurate');
+            setVoiceOverlay(cfg.voice_overlay ?? true);
           }
         })
         .catch(console.error);
@@ -185,6 +187,7 @@ export function SettingsModal({ isOpen, onClose, onConfigSaved }) {
       dictation_cleanup: dictationCleanup,
       voice_vocabulary: voiceVocabulary.trim(),
       voice_model: voiceModel,
+      voice_overlay: voiceOverlay,
     };
     try {
       // The backend registers the hotkey first and only saves if that works.
@@ -378,6 +381,14 @@ export function SettingsModal({ isOpen, onClose, onConfigSaved }) {
                 className={`${inputClass} resize-none py-2 leading-relaxed`}
               />
               <p className="mt-1.5 text-[12px] text-ink-3">Whisper spells these the way you write them here.</p>
+            </div>
+
+            <div className="flex items-center justify-between gap-4 rounded-xl border border-line bg-black/20 p-4">
+              <label htmlFor="voiceOverlay" className="cursor-pointer">
+                <span className="block text-[13.5px] font-medium text-ink">Floating indicator</span>
+                <span className="block text-[12.5px] text-ink-3">Show a small pill with a live mic level while you hold a voice key in another app.</span>
+              </label>
+              <Switch id="voiceOverlay" checked={voiceOverlay} onChange={setVoiceOverlay} />
             </div>
 
             <div className="flex items-center justify-between gap-4 rounded-xl border border-line bg-black/20 p-4">

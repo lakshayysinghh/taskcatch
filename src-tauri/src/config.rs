@@ -30,6 +30,9 @@ pub struct AppConfig {
     /// Whisper model preference: "accurate" (large-v3 first) or "fast" (turbo first).
     #[serde(default = "default_voice_model")]
     pub voice_model: String,
+    /// Show the floating indicator while a voice hotkey is held.
+    #[serde(default = "default_true")]
+    pub voice_overlay: bool,
 }
 
 fn default_voice_model() -> String {
@@ -63,6 +66,7 @@ impl Default for AppConfig {
             dictation_cleanup: true,
             voice_vocabulary: String::new(),
             voice_model: default_voice_model(),
+            voice_overlay: true,
         }
     }
 }

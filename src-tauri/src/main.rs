@@ -8,6 +8,7 @@ mod config;
 mod db;
 mod voice;
 mod transcript;
+mod overlay;
 
 fn main() {
     desktop::run();

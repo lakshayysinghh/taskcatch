@@ -1,8 +1,8 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Default capability for TaskCatch main window. The global hotkey is registered from Rust, so the webview gets no global-shortcut permissions.",
-  "windows": ["main"],
+  "description": "Default capability for the TaskCatch main window and the floating voice indicator. The global hotkey is registered from Rust, so the webview gets no global-shortcut permissions.",
+  "windows": ["main", "overlay"],
   "permissions": [
     "core:default",
     "notification:default",

@@ -14,6 +14,7 @@ use crate::capture;
 use crate::config::{self, AppConfig, ConfigState};
 use crate::db::{self, Task};
 use crate::hotkey::{self, HotkeyAction, HotkeyMap};
+use crate::overlay;
 use crate::voice;
 
 /// Locks a mutex even if a previous holder panicked (the data is plain values).
@@ -289,6 +290,9 @@ pub fn run() {
             });
 
             build_tray(app)?;
+            if let Err(e) = overlay::create(app.handle()) {
+                eprintln!("Could not create the voice indicator: {}", e);
+            }
 
             Ok(())
         })
@@ -527,6 +531,59 @@ struct VoiceStatus {
 
 fn emit_voice(app: &AppHandle, state: &'static str, purpose: VoicePurpose, message: Option<String>) {
     let _ = app.emit("voice-status", VoiceStatus { state, purpose, message });
+    update_overlay(app, state, purpose);
+}
+
+/// The floating indicator is for hotkey voice used with TaskCatch in the
+/// background. When the TaskCatch window is in front, its own in-page
+/// indicator is used instead.
+fn overlay_wanted(app: &AppHandle) -> bool {
+    let enabled = {
+        let config_state = app.state::<ConfigState>();
+        let cfg = lock(&config_state.0);
+        cfg.voice_overlay
+    };
+    let main_focused = app
+        .get_webview_window("main")
+        .and_then(|w| w.is_focused().ok())
+        .unwrap_or(false);
+    enabled && !main_focused
+}
+
+fn update_overlay(app: &AppHandle, state: &'static str, purpose: VoicePurpose) {
+    if purpose == VoicePurpose::Text {
+        return; // mic buttons live inside the window
+    }
+    match state {
+        "listening" => {
+            if overlay_wanted(app) {
+                overlay::show(app);
+                start_level_meter(app.clone());
+            }
+        }
+        "transcribing" => {}
+        // Errors and "copied" carry a message worth reading.
+        "error" | "copied" => overlay::hide_later(app, true),
+        _ => overlay::hide_later(app, false),
+    }
+}
+
+/// Sends the microphone level to the indicator about 20 times a second
+/// while a hotkey take is starting or recording.
+fn start_level_meter(app: AppHandle) {
+    std::thread::spawn(move || loop {
+        let active = {
+            let state = app.state::<VoiceState>();
+            let session = lock(&state.0);
+            matches!(*session, VoiceSession::Starting { .. } | VoiceSession::Recording { .. })
+        };
+        if !active {
+            let _ = app.emit_to(overlay::LABEL, "voice-level", 0.0f32);
+            break;
+        }
+        let _ = app.emit_to(overlay::LABEL, "voice-level", voice::input_level());
+        std::thread::sleep(Duration::from_millis(50));
+    });
 }
 
 fn on_voice_key(app: &AppHandle, purpose: VoicePurpose, pressed: bool) {
