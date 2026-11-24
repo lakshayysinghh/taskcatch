@@ -7,6 +7,7 @@ mod ai_client;
 mod config;
 mod db;
 mod voice;
+mod transcript;
 
 fn main() {
     desktop::run();

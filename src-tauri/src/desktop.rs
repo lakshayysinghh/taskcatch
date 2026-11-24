@@ -53,6 +53,7 @@ async fn update_config(app: AppHandle, state: tauri::State<'_, ConfigState>, new
     new_config.dictation_hotkey = new_config.dictation_hotkey.trim().to_string();
     new_config.voice_language = new_config.voice_language.trim().to_lowercase();
     new_config.voice_vocabulary = new_config.voice_vocabulary.trim().chars().take(2_000).collect();
+    new_config.voice_model = if new_config.voice_model.trim().eq_ignore_ascii_case("fast") { "fast".to_string() } else { "accurate".to_string() };
     let old_config = lock(&state.0).clone();
 
     // Register the new hotkeys before saving anything. If one is invalid,
@@ -268,6 +269,7 @@ pub fn run() {
             let config = config::load_config();
             app.manage(HotkeyMap::default());
             app.manage(VoiceState(Mutex::new(VoiceSession::Idle)));
+            app.manage(LastDictation::default());
             if let Err(e) = register_all_hotkeys(app.handle(), &config) {
                 eprintln!("Failed to register hotkeys at start-up: {}", e);
             }
@@ -330,8 +332,9 @@ fn show_main_window(app: &AppHandle) {
 /// Tray icon: left-click opens the window; right-click shows Open / Quit.
 fn build_tray(app: &tauri::App) -> tauri::Result<()> {
     let open = MenuItem::with_id(app, "open", "Open TaskCatch", true, None::<&str>)?;
+    let copy_last = MenuItem::with_id(app, "copy_last", "Copy last dictation", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit TaskCatch", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&open, &quit])?;
+    let menu = Menu::with_items(app, &[&open, &copy_last, &quit])?;
 
     let mut builder = TrayIconBuilder::new()
         .tooltip("TaskCatch - AI Task Extractor")
@@ -339,6 +342,12 @@ fn build_tray(app: &tauri::App) -> tauri::Result<()> {
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id.as_ref() {
             "open" => show_main_window(app),
+            "copy_last" => {
+                let text = lock(&app.state::<LastDictation>().0).clone();
+                if !text.is_empty() {
+                    let _ = capture::copy_to_clipboard(&text);
+                }
+            }
             "quit" => app.exit(0),
             _ => {}
         })
@@ -495,15 +504,21 @@ enum VoiceSession {
     Idle,
     /// The microphone is opening. A key released before it is ready is
     /// remembered so the take is discarded as too short.
-    Starting { purpose: VoicePurpose, release_pending: bool },
-    Recording { purpose: VoicePurpose, recording: voice::Recording },
+    Starting { purpose: VoicePurpose, release_pending: bool, target: Option<isize> },
+    /// `target` is the window that had focus when dictation began.
+    Recording { purpose: VoicePurpose, recording: voice::Recording, target: Option<isize> },
 }
 
 struct VoiceState(Mutex<VoiceSession>);
 
+/// The last dictated text, so it can be recovered from the tray menu if it
+/// did not land where it was meant to. Kept in memory only.
+#[derive(Default)]
+struct LastDictation(Mutex<String>);
+
 #[derive(Clone, Serialize)]
 struct VoiceStatus {
-    /// listening | transcribing | done | error
+    /// listening | transcribing | done | copied | error
     state: &'static str,
     purpose: VoicePurpose,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -529,7 +544,9 @@ fn begin_hotkey_recording(app: AppHandle, purpose: VoicePurpose) {
         if !matches!(*session, VoiceSession::Idle) {
             return; // already recording (another key or a mic button)
         }
-        *session = VoiceSession::Starting { purpose, release_pending: false };
+        // Remember where the text should go before anything else can take focus.
+        let target = if purpose == VoicePurpose::Dictation { capture::foreground_window() } else { None };
+        *session = VoiceSession::Starting { purpose, release_pending: false, target };
     }
     emit_voice(&app, "listening", purpose, None);
 
@@ -538,7 +555,10 @@ fn begin_hotkey_recording(app: AppHandle, purpose: VoicePurpose) {
         let result = voice::start();
         let state = app.state::<VoiceState>();
         let mut session = lock(&state.0);
-        let released_early = matches!(*session, VoiceSession::Starting { release_pending: true, .. });
+        let (released_early, target) = match &*session {
+            VoiceSession::Starting { release_pending, target, .. } => (*release_pending, *target),
+            _ => (false, None),
+        };
         match result {
             Ok(recording) if released_early => {
                 *session = VoiceSession::Idle;
@@ -547,7 +567,7 @@ fn begin_hotkey_recording(app: AppHandle, purpose: VoicePurpose) {
                 emit_voice(&app, "error", purpose, Some("Too short — hold the key while you speak.".to_string()));
             }
             Ok(recording) => {
-                *session = VoiceSession::Recording { purpose, recording };
+                *session = VoiceSession::Recording { purpose, recording, target };
             }
             Err(e) => {
                 *session = VoiceSession::Idle;
@@ -559,13 +579,13 @@ fn begin_hotkey_recording(app: AppHandle, purpose: VoicePurpose) {
 }
 
 fn end_hotkey_recording(app: AppHandle, purpose: VoicePurpose) {
-    let recording = {
+    let (recording, target) = {
         let state = app.state::<VoiceState>();
         let mut session = lock(&state.0);
         match std::mem::replace(&mut *session, VoiceSession::Idle) {
-            VoiceSession::Recording { purpose: p, recording } if p == purpose => recording,
-            VoiceSession::Starting { purpose: p, .. } if p == purpose => {
-                *session = VoiceSession::Starting { purpose: p, release_pending: true };
+            VoiceSession::Recording { purpose: p, recording, target } if p == purpose => (recording, target),
+            VoiceSession::Starting { purpose: p, target, .. } if p == purpose => {
+                *session = VoiceSession::Starting { purpose: p, release_pending: true, target };
                 return;
             }
             other => {
@@ -575,11 +595,11 @@ fn end_hotkey_recording(app: AppHandle, purpose: VoicePurpose) {
         }
     };
     tauri::async_runtime::spawn(async move {
-        finish_hotkey_recording(app, purpose, recording).await;
+        finish_hotkey_recording(app, purpose, recording, target).await;
     });
 }
 
-async fn finish_hotkey_recording(app: AppHandle, purpose: VoicePurpose, recording: voice::Recording) {
+async fn finish_hotkey_recording(app: AppHandle, purpose: VoicePurpose, recording: voice::Recording, target: Option<isize>) {
     emit_voice(&app, "transcribing", purpose, None);
     let text = match transcribe_recording(&app, recording).await {
         Ok(t) => t,
@@ -600,9 +620,17 @@ async fn finish_hotkey_recording(app: AppHandle, purpose: VoicePurpose, recordin
                 let cfg = lock(&config_state.0);
                 (cfg.groq_api_key.clone(), cfg.dictation_cleanup, cfg.voice_vocabulary.clone())
             };
+            // Transcription, clean-up and insertion are separate steps; a
+            // failed clean-up falls back to the raw transcript.
             let final_text = if cleanup { ai_client::clean_dictation(&api_key, &text, &vocabulary).await } else { text };
-            match tauri::async_runtime::spawn_blocking(move || capture::type_text(&final_text)).await {
-                Ok(result) => result,
+            *lock(&app.state::<LastDictation>().0) = final_text.clone();
+            match tauri::async_runtime::spawn_blocking(move || capture::insert_text(&final_text, target)).await {
+                Ok(Ok(capture::Insertion::Copied(reason))) => {
+                    emit_voice(&app, "copied", purpose, Some(format!("{} The text is on your clipboard: press Ctrl+V to paste it.", reason)));
+                    return;
+                }
+                Ok(Ok(_)) => Ok(()),
+                Ok(Err(e)) => Err(format!("{} Use \"Copy last dictation\" in the tray menu to get the text.", e)),
                 Err(e) => Err(format!("Typing failed: {}", e)),
             }
         }
@@ -620,12 +648,12 @@ async fn transcribe_recording(app: &AppHandle, recording: voice::Recording) -> R
     let wav = tauri::async_runtime::spawn_blocking(move || recording.finish().and_then(voice::prepare_wav))
         .await
         .map_err(|e| e.to_string())??;
-    let (api_key, language, vocabulary) = {
+    let (api_key, language, vocabulary, model) = {
         let config_state = app.state::<ConfigState>();
         let cfg = lock(&config_state.0);
-        (cfg.groq_api_key.clone(), cfg.voice_language.clone(), cfg.voice_vocabulary.clone())
+        (cfg.groq_api_key.clone(), cfg.voice_language.clone(), cfg.voice_vocabulary.clone(), cfg.voice_model.clone())
     };
-    let text = ai_client::transcribe(&api_key, wav, &language, &vocabulary).await?;
+    let text = ai_client::transcribe(&api_key, wav, &language, &vocabulary, &model).await?;
     if text.trim().is_empty() {
         return Err("No speech was recognised. Try again a little closer to the microphone.".to_string());
     }
@@ -641,7 +669,7 @@ async fn voice_start(app: AppHandle) -> Result<(), String> {
         if !matches!(*session, VoiceSession::Idle) {
             return Err("Already recording. Finish the current recording first.".to_string());
         }
-        *session = VoiceSession::Starting { purpose: VoicePurpose::Text, release_pending: false };
+        *session = VoiceSession::Starting { purpose: VoicePurpose::Text, release_pending: false, target: None };
     }
     let result = tauri::async_runtime::spawn_blocking(voice::start)
         .await
@@ -651,7 +679,7 @@ async fn voice_start(app: AppHandle) -> Result<(), String> {
     let mut session = lock(&state.0);
     match result {
         Ok(recording) => {
-            *session = VoiceSession::Recording { purpose: VoicePurpose::Text, recording };
+            *session = VoiceSession::Recording { purpose: VoicePurpose::Text, recording, target: None };
             Ok(())
         }
         Err(e) => {
@@ -681,7 +709,7 @@ fn take_text_recording(app: &AppHandle) -> Option<voice::Recording> {
     let state = app.state::<VoiceState>();
     let mut session = lock(&state.0);
     match std::mem::replace(&mut *session, VoiceSession::Idle) {
-        VoiceSession::Recording { purpose: VoicePurpose::Text, recording } => Some(recording),
+        VoiceSession::Recording { purpose: VoicePurpose::Text, recording, .. } => Some(recording),
         other => {
             *session = other;
             None

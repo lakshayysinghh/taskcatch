@@ -115,6 +115,7 @@ export function SettingsModal({ isOpen, onClose, onConfigSaved }) {
   const [voiceLanguage, setVoiceLanguage] = useState('');
   const [dictationCleanup, setDictationCleanup] = useState(true);
   const [voiceVocabulary, setVoiceVocabulary] = useState('');
+  const [voiceModel, setVoiceModel] = useState('accurate');
   const [soundEnabled, setSoundEnabled] = useState(true);
 
   const [isTesting, setIsTesting] = useState(false);
@@ -138,6 +139,7 @@ export function SettingsModal({ isOpen, onClose, onConfigSaved }) {
             setVoiceLanguage(cfg.voice_language || '');
             setDictationCleanup(cfg.dictation_cleanup ?? true);
             setVoiceVocabulary(cfg.voice_vocabulary || '');
+            setVoiceModel(cfg.voice_model === 'fast' ? 'fast' : 'accurate');
           }
         })
         .catch(console.error);
@@ -182,6 +184,7 @@ export function SettingsModal({ isOpen, onClose, onConfigSaved }) {
       voice_language: voiceLanguage,
       dictation_cleanup: dictationCleanup,
       voice_vocabulary: voiceVocabulary.trim(),
+      voice_model: voiceModel,
     };
     try {
       // The backend registers the hotkey first and only saves if that works.
@@ -348,6 +351,16 @@ export function SettingsModal({ isOpen, onClose, onConfigSaved }) {
                     {name}
                   </option>
                 ))}
+              </Select>
+            </div>
+
+            <div>
+              <Label htmlFor="voice-model" hint="Both use Groq Whisper">
+                Transcription
+              </Label>
+              <Select id="voice-model" value={voiceModel} onChange={(e) => setVoiceModel(e.target.value)}>
+                <option value="accurate">Most accurate (large-v3)</option>
+                <option value="fast">Fastest (large-v3 turbo)</option>
               </Select>
             </div>
 
