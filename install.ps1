@@ -109,6 +109,8 @@ function Install-TaskCatch {
     Write-Host '  ------------------------------------------------------------------' -ForegroundColor DarkGray
     Write-Host '   READY TO USE!' -ForegroundColor White
     Write-Host '   - Highlight text anywhere and press [ F9 ] to capture it as a task.' -ForegroundColor Cyan
+    Write-Host '   - Hold [ F8 ] and speak to add a task by voice.' -ForegroundColor Cyan
+    Write-Host '   - Hold [ F7 ] to dictate into any app.' -ForegroundColor Cyan
     Write-Host '   - Press [ Ctrl+K ] in the dashboard to quick-add a task.' -ForegroundColor Cyan
     Write-Host "   - GitHub: https://github.com/$Repo" -ForegroundColor Gray
     Write-Host '  ------------------------------------------------------------------' -ForegroundColor DarkGray
