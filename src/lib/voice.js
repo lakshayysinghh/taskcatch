@@ -12,8 +12,13 @@
 import { isTauri, safeInvoke } from './tauri';
 
 const TRANSCRIBE_URL = 'https://api.groq.com/openai/v1/audio/transcriptions';
-// The most accurate Whisper model; same choice as the desktop app.
-const MODEL = 'whisper-large-v3';
+const ACCURATE = 'whisper-large-v3';
+const FAST = 'whisper-large-v3-turbo';
+
+/** Models to try in order, like whisper_models in src-tauri/src/ai_client.rs. */
+export function whisperModels(preference) {
+  return String(preference || '').trim().toLowerCase() === 'fast' ? [FAST, ACCURATE] : [ACCURATE, FAST];
+}
 // Keep recording this long after "stop" so the last word is not clipped.
 const TAIL_MS = 300;
 // Whisper's prompt is limited to 224 tokens; stay well under it.
@@ -58,19 +63,58 @@ const HALLUCINATIONS = [
 ];
 
 /**
+ * Collapses a phrase of up to 8 words repeated 4 or more times in a row (a
+ * Whisper loop) to one occurrence. Mirrors collapse_loops in transcript.rs.
+ */
+export function collapseLoops(text) {
+  const words = String(text || '').split(/\s+/).filter(Boolean);
+  const keys = words.map(normalize);
+  const out = [];
+  let i = 0;
+  outer: while (i < words.length) {
+    for (let n = 1; n <= 8; n++) {
+      if (i + n * 4 > words.length) break;
+      const phrase = keys.slice(i, i + n);
+      if (phrase.every((k) => !k)) continue;
+      let repeats = 1;
+      while (i + (repeats + 1) * n <= words.length && keys.slice(i + repeats * n, i + (repeats + 1) * n).join(' ') === phrase.join(' ')) {
+        repeats += 1;
+      }
+      if (repeats >= 4) {
+        out.push(...words.slice(i, i + n));
+        i += n * repeats;
+        continue outer;
+      }
+    }
+    out.push(words[i]);
+    i += 1;
+  }
+  return out.join(' ');
+}
+
+/**
  * The transcript from a verbose_json response, without the segments Whisper
  * marks as non-speech, and '' if what is left is a known hallucination.
- * Mirrors clean_transcript in src-tauri/src/ai_client.rs.
+ * Mirrors clean_transcript in src-tauri/src/transcript.rs.
  */
 export function cleanTranscript(data, prompt = '') {
   const segments = Array.isArray(data?.segments) ? data.segments : [];
-  const joined = segments.length
-    ? segments
-        .filter((s) => !((s.no_speech_prob ?? 0) > 0.6 && (s.avg_logprob ?? 0) < -1))
-        .map((s) => s.text || '')
-        .join(' ')
-    : String(data?.text || '');
-  const text = joined.split(/\s+/).filter(Boolean).join(' ');
+  let joined;
+  if (segments.length) {
+    const kept = [];
+    let previous = '';
+    for (const s of segments) {
+      if ((s.no_speech_prob ?? 0) > 0.6 && (s.avg_logprob ?? 0) < -1) continue;
+      const key = normalize(s.text);
+      if (key && key === previous) continue; // Whisper repeated the segment
+      previous = key;
+      kept.push(s.text || '');
+    }
+    joined = kept.join(' ');
+  } else {
+    joined = String(data?.text || '');
+  }
+  const text = collapseLoops(joined.split(/\s+/).filter(Boolean).join(' '));
   const n = normalize(text);
   if (!n || n === 'you' || HALLUCINATIONS.some((h) => n.includes(h))) return '';
   if (prompt && (n === normalize(prompt) || n.startsWith('names and terms'))) return '';
@@ -90,6 +134,7 @@ async function webConfig() {
     key: (cfg.groq_api_key || '').trim(),
     language: (cfg.voice_language || '').trim(),
     vocabulary: cfg.voice_vocabulary || '',
+    model: cfg.voice_model || 'accurate',
   };
 }
 
@@ -154,29 +199,49 @@ export async function stopVoice() {
   const blob = new Blob(session.chunks, { type });
   if (blob.size < 1000) throw 'No speech was recorded. Check your microphone.';
 
-  const { key, language, vocabulary } = await webConfig();
+  const { key, language, vocabulary, model } = await webConfig();
   const prompt = whisperPrompt(vocabulary);
-  const form = new FormData();
-  form.append('file', blob, type.includes('ogg') ? 'speech.ogg' : 'speech.webm');
-  form.append('model', MODEL);
-  form.append('response_format', 'verbose_json');
-  form.append('temperature', '0');
-  if (language) form.append('language', language);
-  if (prompt) form.append('prompt', prompt);
 
-  let res;
-  try {
-    res = await fetch(TRANSCRIBE_URL, { method: 'POST', headers: { Authorization: `Bearer ${key}` }, body: form });
-  } catch {
-    throw 'Could not reach Groq for transcription.';
+  // Try the preferred model, then the other one: it has its own rate limit
+  // and is a second chance on a server error or a dropped connection.
+  let lastError = 'Transcription failed.';
+  for (const name of whisperModels(model)) {
+    const form = new FormData();
+    form.append('file', blob, type.includes('ogg') ? 'speech.ogg' : 'speech.webm');
+    form.append('model', name);
+    form.append('response_format', 'verbose_json');
+    form.append('temperature', '0');
+    if (language) form.append('language', language);
+    if (prompt) form.append('prompt', prompt);
+
+    let res;
+    try {
+      res = await fetch(TRANSCRIBE_URL, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${key}` },
+        body: form,
+        signal: AbortSignal.timeout?.(30_000),
+      });
+    } catch {
+      lastError = 'Could not reach Groq for transcription.';
+      continue;
+    }
+    if (res.status === 401) throw 'Groq rejected the API key. Check it in Settings.';
+    if (res.status === 429) {
+      lastError = "Groq's rate limit was reached. Wait a moment and try again.";
+      continue;
+    }
+    if (res.status >= 500) {
+      lastError = `Transcription failed (${res.status}).`;
+      continue;
+    }
+    if (!res.ok) throw `Transcription failed (${res.status}).`;
+    const data = await res.json().catch(() => ({}));
+    const text = cleanTranscript(data, prompt);
+    if (!text) throw 'No speech was recognised. Try again a little closer to the microphone.';
+    return text;
   }
-  if (res.status === 401) throw 'Groq rejected the API key. Check it in Settings.';
-  if (res.status === 429) throw "Groq's rate limit was reached. Wait a moment and try again.";
-  if (!res.ok) throw `Transcription failed (${res.status}).`;
-  const data = await res.json().catch(() => ({}));
-  const text = cleanTranscript(data, prompt);
-  if (!text) throw 'No speech was recognised. Try again a little closer to the microphone.';
-  return text;
+  throw lastError;
 }
 
 export async function cancelVoice() {

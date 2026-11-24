@@ -46,6 +46,7 @@ describe('Settings: voice tab', () => {
     // Turn dictation off with its "Off" preset (the second Off button on the tab).
     fireEvent.click(screen.getAllByText('Off')[1]);
     fireEvent.change(screen.getByLabelText(/Custom words/), { target: { value: ' Priya, Kubernetes ' } });
+    fireEvent.change(screen.getByLabelText(/Transcription/), { target: { value: 'fast' } });
     fireEvent.click(screen.getByRole('switch', { name: /Tidy dictated text/ }));
     fireEvent.click(screen.getByText('Save changes'));
 
@@ -59,6 +60,7 @@ describe('Settings: voice tab', () => {
       voice_language: 'hi',
       dictation_cleanup: false,
       voice_vocabulary: 'Priya, Kubernetes',
+      voice_model: 'fast',
     });
   });
 });

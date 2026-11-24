@@ -143,6 +143,8 @@ export function App() {
       gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.18);
       osc.connect(gain);
       gain.connect(ctx.destination);
+      // Close each context when its tone ends; open ones pile up over a day of dictation.
+      osc.onended = () => ctx.close().catch(() => {});
       osc.start();
       osc.stop(ctx.currentTime + 0.18);
     } catch {
@@ -162,6 +164,13 @@ export function App() {
         const message = status.message || 'Voice input failed.';
         reportError(status.purpose === 'dictation' ? 'Dictation failed' : 'Voice capture failed', message);
         if (!document.hasFocus()) safeSendNotification({ title: 'Voice input failed', body: message });
+      }
+      // Dictation could not be inserted safely, so it was put on the clipboard.
+      if (status.state === 'copied') {
+        playCue('error');
+        const message = status.message || 'The text is on your clipboard: press Ctrl+V to paste it.';
+        reportError('Dictation copied to clipboard', message);
+        if (!document.hasFocus()) safeSendNotification({ title: 'Dictation copied to clipboard', body: message });
       }
       setVoiceStatus(status.state === 'listening' || status.state === 'transcribing' ? status : null);
     };

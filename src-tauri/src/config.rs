@@ -27,6 +27,13 @@ pub struct AppConfig {
     /// Names and terms to spell correctly, separated by commas or new lines.
     #[serde(default)]
     pub voice_vocabulary: String,
+    /// Whisper model preference: "accurate" (large-v3 first) or "fast" (turbo first).
+    #[serde(default = "default_voice_model")]
+    pub voice_model: String,
+}
+
+fn default_voice_model() -> String {
+    "accurate".to_string()
 }
 
 fn default_capture_hotkey() -> String {
@@ -55,6 +62,7 @@ impl Default for AppConfig {
             voice_language: String::new(),
             dictation_cleanup: true,
             voice_vocabulary: String::new(),
+            voice_model: default_voice_model(),
         }
     }
 }

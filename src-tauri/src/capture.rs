@@ -52,16 +52,22 @@ pub fn get_active_window_title() -> Option<String> {
 
 /// Sends the platform's copy shortcut to the foreground app.
 fn send_copy() -> Result<(), String> {
-    let mut enigo = Enigo::new(&Settings::default()).map_err(|e| format!("{:?}", e))?;
-
-    #[cfg(target_os = "macos")]
-    let (modifier, letter) = (Key::Meta, Key::C);
     // A virtual-key code, so Ctrl+C works whatever the keyboard layout
     // (Key::Unicode('c') has no key on e.g. a Cyrillic layout).
     #[cfg(target_os = "windows")]
-    let (modifier, letter) = (Key::Control, Key::C);
-    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-    let (modifier, letter) = (Key::Control, Key::Unicode('c'));
+    let letter = Key::C;
+    #[cfg(not(target_os = "windows"))]
+    let letter = Key::Unicode('c');
+    send_shortcut(letter)
+}
+
+/// Sends Ctrl+<letter> (Cmd on macOS) to the foreground app.
+fn send_shortcut(letter: Key) -> Result<(), String> {
+    let mut enigo = Enigo::new(&Settings::default()).map_err(|e| format!("{:?}", e))?;
+    #[cfg(target_os = "macos")]
+    let modifier = Key::Meta;
+    #[cfg(not(target_os = "macos"))]
+    let modifier = Key::Control;
 
     enigo
         .key(modifier, Direction::Press)
@@ -291,21 +297,141 @@ mod win {
     }
 }
 
-/// Types `text` into whichever app has focus, as Unicode (works for any
-/// keyboard layout and leaves the clipboard alone). Used by dictation.
-/// Blocking: call it off the async runtime.
-pub fn type_text(text: &str) -> Result<(), String> {
-    // Typing while a modifier is held would turn letters into shortcuts.
-    #[cfg(target_os = "windows")]
-    if !win::wait_for_modifiers_released(MODIFIER_RELEASE_TIMEOUT) {
-        return Err("Release Ctrl/Shift/Alt/Win before the text is typed.".to_string());
+// ---------------------------------------------------------------------------
+// Dictation: putting text into the focused app
+// ---------------------------------------------------------------------------
+
+/// How long the target app gets to read the clipboard after Ctrl+V before
+/// the user's own clipboard is put back. Electron apps can be slow to read.
+#[cfg(target_os = "windows")]
+const PASTE_SETTLE: Duration = Duration::from_millis(350);
+
+/// How dictated text reached the user.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Insertion {
+    /// Pasted into the focused field (the user's clipboard was restored).
+    Pasted,
+    /// Typed key by key (paste was not possible).
+    Typed,
+    /// Not inserted; left on the clipboard instead, for the reason given.
+    Copied(String),
+}
+
+/// The window that has keyboard focus, to check later that it still does.
+#[cfg(target_os = "windows")]
+pub fn foreground_window() -> Option<isize> {
+    #[link(name = "user32")]
+    extern "system" {
+        fn GetForegroundWindow() -> isize;
     }
-    let clean: String = text.chars().filter(|c| *c != '\0').collect();
-    if clean.trim().is_empty() {
-        return Ok(());
+    let hwnd = unsafe { GetForegroundWindow() };
+    if hwnd == 0 {
+        None
+    } else {
+        Some(hwnd)
     }
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn foreground_window() -> Option<isize> {
+    None
+}
+
+/// True unless focus has demonstrably moved to another window since the
+/// dictation started (unknown counts as unchanged).
+pub fn same_window(started_in: Option<isize>, now: Option<isize>) -> bool {
+    match (started_in, now) {
+        (Some(a), Some(b)) => a == b,
+        _ => true,
+    }
+}
+
+/// Removes characters that break typing or pasting, and uses Windows line
+/// endings so multi-line dictation pastes correctly everywhere.
+pub fn prepare_for_insert(text: &str) -> String {
+    let no_nul: String = text.chars().filter(|c| *c != '\0').collect();
+    let lf = no_nul.replace("\r\n", "\n").replace('\r', "\n");
+    if cfg!(target_os = "windows") {
+        lf.replace('\n', "\r\n")
+    } else {
+        lf
+    }
+}
+
+/// Puts text on the clipboard and leaves it there.
+pub fn copy_to_clipboard(text: &str) -> Result<(), String> {
+    Clipboard::new()
+        .and_then(|mut c| c.set_text(text.to_string()))
+        .map_err(|e| format!("Could not copy to the clipboard: {}", e))
+}
+
+fn copied(text: &str, reason: &str) -> Result<Insertion, String> {
+    copy_to_clipboard(text)?;
+    Ok(Insertion::Copied(reason.to_string()))
+}
+
+/// Pastes through the clipboard and then restores the user's clipboard (all
+/// formats). One keystroke, so it is instant, keeps the caret position,
+/// replaces a selection like typing would, and never presses Enter for a new
+/// line (which would send a half-written chat message).
+#[cfg(target_os = "windows")]
+fn paste_text(text: &str) -> Result<(), String> {
+    let snapshot = win::snapshot().ok_or("The clipboard is in use by another app.")?;
+    // Kept out of Windows clipboard history (Win+V) and cloud clipboard sync.
+    use arboard::SetExtWindows;
+    let set = Clipboard::new().and_then(|mut c| c.set().exclude_from_history().exclude_from_cloud().text(text.to_string()));
+    let result = match set {
+        Ok(()) => send_shortcut(Key::V),
+        Err(e) => Err(format!("Could not use the clipboard: {}", e)),
+    };
+    if result.is_ok() {
+        thread::sleep(PASTE_SETTLE);
+    }
+    if !win::restore(&snapshot) {
+        eprintln!("Clipboard could not be fully restored after dictation");
+    }
+    result
+}
+
+fn type_keys(text: &str) -> Result<(), String> {
     let mut enigo = Enigo::new(&Settings::default()).map_err(|e| format!("{:?}", e))?;
-    enigo.text(&clean).map_err(|e| format!("Could not type the text: {:?}", e))
+    enigo.text(text).map_err(|e| format!("Could not type the text: {:?}", e))
+}
+
+/// Inserts dictated text into the focused app. `started_in` is the window
+/// that had focus when dictation began: if focus has since moved elsewhere
+/// the text is not inserted there, it is copied to the clipboard instead.
+/// The text is never lost: whenever it cannot be inserted it is copied.
+/// Blocking: call it off the async runtime.
+pub fn insert_text(text: &str, started_in: Option<isize>) -> Result<Insertion, String> {
+    // One insertion at a time, so two dictations cannot fight over the clipboard.
+    static INSERTING: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _one_at_a_time = INSERTING.lock().unwrap_or_else(|p| p.into_inner());
+    let text = prepare_for_insert(text);
+    if text.trim().is_empty() {
+        return Ok(Insertion::Typed);
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        // A held modifier would turn the paste or the letters into shortcuts.
+        if !win::wait_for_modifiers_released(MODIFIER_RELEASE_TIMEOUT) {
+            return copied(&text, "Ctrl, Shift, Alt or Win was still held down.");
+        }
+        if !same_window(started_in, foreground_window()) {
+            return copied(&text, "You switched to another window while speaking.");
+        }
+        if paste_text(&text).is_ok() {
+            return Ok(Insertion::Pasted);
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    let _ = started_in;
+
+    match type_keys(&text) {
+        Ok(()) => Ok(Insertion::Typed),
+        Err(_) => copied(&text, "This app did not accept typed text."),
+    }
 }
 
 /// Copies the current selection in the foreground app and returns it,
@@ -391,4 +517,25 @@ pub fn get_selected_text() -> Result<CaptureResult, String> {
         return Err("No text was selected".to_string());
     }
     Ok(CaptureResult { text, source_app })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_a_known_change_of_window_blocks_insertion() {
+        assert!(same_window(Some(42), Some(42)));
+        assert!(!same_window(Some(42), Some(7)));
+        assert!(same_window(None, Some(7)));
+        assert!(same_window(Some(42), None));
+    }
+
+    #[test]
+    fn text_is_prepared_for_pasting() {
+        assert_eq!(prepare_for_insert("a\0b"), "ab");
+        let nl = if cfg!(target_os = "windows") { "\r\n" } else { "\n" };
+        assert_eq!(prepare_for_insert("one\ntwo"), format!("one{}two", nl));
+        assert_eq!(prepare_for_insert("one\r\ntwo\rthree"), format!("one{nl}two{nl}three", nl = nl));
+    }
 }

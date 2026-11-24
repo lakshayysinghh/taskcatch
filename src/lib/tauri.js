@@ -57,6 +57,7 @@ export const DEFAULT_CONFIG = Object.freeze({
   voice_language: '',
   dictation_cleanup: true,
   voice_vocabulary: '',
+  voice_model: 'accurate',
 });
 
 function getStoredConfig() {
