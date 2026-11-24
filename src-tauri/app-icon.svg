@@ -1,0 +1,13 @@
+<!-- Source for the desktop app icons. Regenerate with: npx tauri icon src-tauri/app-icon.svg -->
+<!-- Same mark as public/favicon.svg, with slightly heavier strokes so it stays legible at 16 px in the tray. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 32 32">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#eef1d9"/>
+      <stop offset="1" stop-color="#8d945a"/>
+    </linearGradient>
+  </defs>
+  <rect x="0.75" y="0.75" width="30.5" height="30.5" rx="9" fill="#141511" stroke="#eceedc" stroke-opacity="0.14"/>
+  <path d="M8.5 12.5V10a1.5 1.5 0 0 1 1.5-1.5h2.5M19.5 8.5H22a1.5 1.5 0 0 1 1.5 1.5v2.5M23.5 19.5V22a1.5 1.5 0 0 1-1.5 1.5h-2.5M12.5 23.5H10A1.5 1.5 0 0 1 8.5 22v-2.5" stroke="url(#g)" stroke-width="2" stroke-linecap="round" fill="none"/>
+  <path d="m12 16.3 2.8 2.8 5.4-5.9" stroke="url(#g)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+</svg>
