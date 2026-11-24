@@ -35,5 +35,6 @@ jobs:
           tagName: v__VERSION__
           releaseName: 'TaskCatch v__VERSION__'
           releaseBody: 'TaskCatch: Universal Action Item Extractor for Windows.'
-          releaseDraft: false
+          # Drafts stay private; publish with: gh release edit vX.Y.Z --draft=false
+          releaseDraft: true
           prerelease: false
