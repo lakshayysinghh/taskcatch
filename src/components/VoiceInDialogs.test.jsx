@@ -16,7 +16,7 @@ vi.mock('../lib/tauri', () => ({
   safeOpen: vi.fn(),
   safeInvoke: vi.fn(async (cmd) =>
     cmd === 'get_config'
-      ? { groq_api_key: 'k', global_hotkey: 'F9', voice_hotkey: 'F8', dictation_hotkey: 'F7', voice_language: '', dictation_cleanup: true }
+      ? { groq_api_key: 'k', global_hotkey: 'F9', voice_hotkey: 'F8', dictation_hotkey: 'F7', voice_language: '', dictation_cleanup: true, voice_vocabulary: 'Priya' }
       : undefined
   ),
 }));
@@ -45,6 +45,7 @@ describe('Settings: voice tab', () => {
     fireEvent.change(screen.getByLabelText(/Language/), { target: { value: 'hi' } });
     // Turn dictation off with its "Off" preset (the second Off button on the tab).
     fireEvent.click(screen.getAllByText('Off')[1]);
+    fireEvent.change(screen.getByLabelText(/Custom words/), { target: { value: ' Priya, Kubernetes ' } });
     fireEvent.click(screen.getByRole('switch', { name: /Tidy dictated text/ }));
     fireEvent.click(screen.getByText('Save changes'));
 
@@ -57,6 +58,7 @@ describe('Settings: voice tab', () => {
       dictation_hotkey: '',
       voice_language: 'hi',
       dictation_cleanup: false,
+      voice_vocabulary: 'Priya, Kubernetes',
     });
   });
 });

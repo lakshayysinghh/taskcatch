@@ -56,6 +56,7 @@ export const DEFAULT_CONFIG = Object.freeze({
   dictation_hotkey: 'F7',
   voice_language: '',
   dictation_cleanup: true,
+  voice_vocabulary: '',
 });
 
 function getStoredConfig() {

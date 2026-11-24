@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cancelVoice, startVoice, stopVoice, voiceSupported } from './voice';
+import { cancelVoice, cleanTranscript, startVoice, stopVoice, vocabularyTerms, voiceSupported, whisperPrompt } from './voice';
 
 // Browser build: MediaRecorder + Groq Whisper with the visitor's key.
 
@@ -32,7 +32,7 @@ beforeEach(() => {
     configurable: true,
     value: { getUserMedia: vi.fn(async () => ({ getTracks: () => [track] })) },
   });
-  localStorage.setItem('taskcatch_web_config', JSON.stringify({ groq_api_key: 'placeholder-key', voice_language: 'hi' }));
+  localStorage.setItem('taskcatch_web_config', JSON.stringify({ groq_api_key: 'placeholder-key', voice_language: 'hi', voice_vocabulary: 'Priya, Jira' }));
 });
 
 afterEach(async () => {
@@ -70,7 +70,12 @@ describe('web voice', () => {
     const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe('https://api.groq.com/openai/v1/audio/transcriptions');
     expect(init.headers.Authorization).toBe('Bearer placeholder-key');
-    expect(init.body.get('model')).toBe('whisper-large-v3-turbo');
+    expect(init.body.get('model')).toBe('whisper-large-v3');
+    expect(init.body.get('response_format')).toBe('verbose_json');
+    expect(init.body.get('prompt')).toBe('Names and terms: Priya, Jira.');
+    expect(navigator.mediaDevices.getUserMedia).toHaveBeenCalledWith({
+      audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+    });
     expect(init.body.get('language')).toBe('hi');
     expect(init.body.get('file')).toBeInstanceOf(Blob);
     expect(track.stop).toHaveBeenCalled(); // microphone released
@@ -109,5 +114,36 @@ describe('web voice', () => {
     await cancelVoice();
     expect(track.stop).toHaveBeenCalled();
     await expect(stopVoice()).rejects.toMatch(/Not recording/);
+  });
+});
+
+describe('transcript clean-up', () => {
+  it('turns custom words into a short Whisper prompt', () => {
+    expect(vocabularyTerms(' Kubernetes,  NxtWave\nPriya ; kubernetes ,, ')).toEqual(['Kubernetes', 'NxtWave', 'Priya']);
+    expect(whisperPrompt('Priya, Jira')).toBe('Names and terms: Priya, Jira.');
+    expect(whisperPrompt(' , \n')).toBe('');
+    const long = Array.from({ length: 500 }, (_, i) => `term${i}`).join(',');
+    expect(whisperPrompt(long).length).toBeLessThanOrEqual(620);
+  });
+
+  it('drops segments Whisper marks as silence', () => {
+    const data = {
+      text: ' Call Priya about the invoice. Thank you.',
+      segments: [
+        { text: ' Call Priya about the invoice.', no_speech_prob: 0.01, avg_logprob: -0.2 },
+        { text: ' Thank you.', no_speech_prob: 0.9, avg_logprob: -1.4 },
+      ],
+    };
+    expect(cleanTranscript(data)).toBe('Call Priya about the invoice.');
+    expect(cleanTranscript({ text: '  send   the deck ' })).toBe('send the deck');
+  });
+
+  it('treats known hallucinations and an echoed prompt as no speech', () => {
+    for (const text of ['Thanks for watching!', ' you ', 'Subtitles by the Amara.org community', '...']) {
+      expect(cleanTranscript({ text })).toBe('');
+    }
+    const prompt = whisperPrompt('Priya, Jira');
+    expect(cleanTranscript({ text: 'Names and terms: Priya, Jira.' }, prompt)).toBe('');
+    expect(cleanTranscript({ text: 'Ask Priya to update Jira.' }, prompt)).toBe('Ask Priya to update Jira.');
   });
 });
